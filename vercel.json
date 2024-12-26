@@ -1,0 +1,18 @@
+{
+  "cleanUrls": true,
+  "git": {
+    "deploymentEnabled": {
+      "main": true
+    }
+  },
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/next",
+      "config": {
+        "skipBuild": false,
+        "cleanDistDir": true
+      }
+    }
+  ]
+} 
