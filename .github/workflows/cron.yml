@@ -1,0 +1,26 @@
+name: Tweet Monitor Cron Jobs
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'  # Check for new tweets every 15 minutes
+    - cron: '*/5 * * * *'   # Process queue every 5 minutes
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  check-tweets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check New Tweets
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            ${{ secrets.VERCEL_URL }}/api/cron/check-tweets
+
+  process-queue:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Process Tweet Queue
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            ${{ secrets.VERCEL_URL }}/api/cron/process-queue 

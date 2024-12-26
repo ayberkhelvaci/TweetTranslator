@@ -1,0 +1,384 @@
+import { supabaseAdmin } from '@/lib/supabase-admin';
+import { TwitterApi } from 'twitter-api-v2';
+
+export interface ConfigData {
+  sourceAccount: string;
+  checkInterval: number;
+  targetLanguage: string;
+}
+
+interface TransformedTweet {
+  user_id: string;
+  source_tweet_id: string;
+  original_text: string;
+  translated_text: string | null;
+  image_urls: string[];
+  status: 'pending' | 'translating' | 'translated' | 'posted';
+  created_at: string;
+  updated_at: string;
+  author_name: string;
+  author_username: string;
+  author_profile_image: string;
+  error_message: string | null;
+  posted_tweet_id: string | null;
+}
+
+interface RateLimitInfo {
+  reset: number;
+  remaining: number;
+  endpoint: string;
+}
+
+interface TwitterResponse {
+  data: any;
+  rateLimit?: {
+    limit: number;
+    remaining: number;
+    reset: number;
+  };
+}
+
+async function checkAndUpdateRateLimit(userId: string): Promise<RateLimitInfo | null> {
+  try {
+    const { data: rateLimit } = await supabaseAdmin
+      .from('rate_limits')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    console.log('Current rate limit info:', rateLimit);
+
+    // If no rate limit exists, allow the request
+    if (!rateLimit) {
+      return null;
+    }
+
+    // If we're past the reset time, clear the limit and allow the request
+    if (rateLimit.reset <= Date.now()) {
+      console.log('Rate limit reset time passed, clearing limit');
+      await supabaseAdmin
+        .from('rate_limits')
+        .delete()
+        .eq('user_id', userId);
+      return null;
+    }
+
+    // If we still have remaining requests, allow them
+    if (rateLimit.remaining > 0) {
+      return rateLimit;
+    }
+
+    // Only if we have no remaining requests and haven't reached reset time
+    // should we block with a rate limit error
+    if (rateLimit.remaining <= 0 && rateLimit.reset > Date.now()) {
+      const waitMinutes = Math.ceil((rateLimit.reset - Date.now()) / (1000 * 60));
+      console.log('Rate limit details:', {
+        reset: new Date(rateLimit.reset),
+        remaining: rateLimit.remaining,
+        waitMinutes,
+        endpoint: rateLimit.endpoint
+      });
+      throw new Error(`Rate limit exceeded for ${rateLimit.endpoint}. Please try again in ${waitMinutes} minutes.`);
+    }
+
+    return null;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('Rate limit exceeded')) {
+      throw error;
+    }
+    console.error('Error checking rate limit:', error);
+    return null;
+  }
+}
+
+async function updateRateLimit(userId: string, rateLimitData: any, endpoint: string) {
+  const resetTime = Number(rateLimitData.reset) * 1000; // Convert to milliseconds
+  const remaining = Number(rateLimitData.remaining);
+  const limit = Number(rateLimitData.limit || 180); // Default to 180 for Twitter API
+
+  console.log('Updating rate limit:', {
+    endpoint,
+    resetTime: new Date(resetTime),
+    remaining,
+    limit,
+    rateLimitData
+  });
+
+  // Always update rate limit info to track remaining requests
+  await supabaseAdmin
+    .from('rate_limits')
+    .upsert({
+      user_id: userId,
+      reset: resetTime,
+      remaining,
+      limit,
+      endpoint,
+      updated_at: new Date().toISOString()
+    }, {
+      onConflict: 'user_id',
+      ignoreDuplicates: false
+    });
+
+  // Only throw an error if we're actually rate limited
+  if (remaining <= 0 && resetTime > Date.now()) {
+    return {
+      reset: resetTime,
+      remaining,
+      endpoint
+    };
+  }
+
+  return null;
+}
+
+export async function saveConfiguration(userId: string, config: ConfigData) {
+  try {
+    if (!userId || !config.sourceAccount || !config.checkInterval || !config.targetLanguage) {
+      throw new Error('Missing required configuration fields');
+    }
+
+    const now = new Date().toISOString();
+    
+    // Get existing configuration
+    const { data: existingConfig } = await supabaseAdmin
+      .from('config')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    // Clean up the source account: remove any existing @ and add just one
+    const cleanUsername = config.sourceAccount.replace(/^@+/, ''); // Remove all @ from start
+    const sourceAccount = `@${cleanUsername}`; // Add single @
+
+    // Prepare configuration data
+    const configData = {
+      user_id: userId,
+      source_account: sourceAccount,
+      check_interval: config.checkInterval,
+      target_language: config.targetLanguage,
+      updated_at: now
+    };
+
+    console.log('Saving configuration:', configData);
+
+    // Upsert configuration (update if exists, insert if not)
+    const { error: upsertError } = await supabaseAdmin
+      .from('config')
+      .upsert(configData, {
+        onConflict: 'user_id',
+        ignoreDuplicates: false
+      });
+
+    if (upsertError) {
+      console.error('Config error:', upsertError);
+      throw new Error(`Failed to save configuration: ${upsertError.message}`);
+    }
+
+    return { 
+      success: true,
+      message: 'Configuration saved successfully.'
+    };
+  } catch (error) {
+    console.error('Error in saveConfiguration:', error);
+    throw error;
+  }
+}
+
+export async function fetchTweetsManually(userId: string) {
+  try {
+    // Check rate limits first
+    const currentLimit = await checkAndUpdateRateLimit(userId);
+    console.log('Current rate limit check result:', currentLimit);
+
+    // Get user's configuration
+    const { data: config, error: configError } = await supabaseAdmin
+      .from('config')
+      .select('source_account')
+      .eq('user_id', userId)
+      .single();
+
+    if (configError || !config) {
+      throw new Error('Configuration not found. Please save configuration first.');
+    }
+
+    // Clean up username for API call
+    const username = config.source_account.replace(/^@+/, '');
+    
+    // Fetch tweets
+    const result = await fetchTweetsInBackground(userId, username);
+    return result;
+  } catch (error) {
+    console.error('Error in fetchTweetsManually:', error);
+    throw error;
+  }
+}
+
+async function fetchTweetsInBackground(userId: string, username: string) {
+  try {
+    // Get Twitter credentials
+    const { data: twitterKeys, error: twitterError } = await supabaseAdmin
+      .from('twitter_keys')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (twitterError || !twitterKeys) {
+      console.error('Twitter keys error:', twitterError);
+      throw new Error('Twitter credentials not found');
+    }
+
+    // Initialize Twitter client
+    const twitterClient = new TwitterApi({
+      appKey: twitterKeys.api_key,
+      appSecret: twitterKeys.api_secret,
+      accessToken: twitterKeys.access_token,
+      accessSecret: twitterKeys.access_token_secret,
+    });
+
+    console.log('Fetching tweets for:', username);
+
+    try {
+      // Get user's configuration with twitter_user_id and existing tweets
+      const { data: config } = await supabaseAdmin
+        .from('config')
+        .select('twitter_user_id, last_tweet_id')
+        .eq('user_id', userId)
+        .single();
+
+      // Check if we have any existing tweets
+      const { data: existingTweets } = await supabaseAdmin
+        .from('tweets')
+        .select('source_tweet_id')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(1);
+
+      let twitterUserId = config?.twitter_user_id;
+
+      // If we don't have the Twitter user ID cached, get it
+      if (!twitterUserId) {
+        try {
+          const user = await twitterClient.v2.userByUsername(username) as TwitterResponse;
+          if (!user.data) {
+            throw new Error(`User @${username} not found`);
+          }
+          twitterUserId = user.data.id;
+
+          // Cache the Twitter user ID
+          await supabaseAdmin
+            .from('config')
+            .update({ twitter_user_id: twitterUserId })
+            .eq('user_id', userId);
+
+          // Update rate limit info
+          if (user.rateLimit) {
+            await updateRateLimit(userId, user.rateLimit, 'userByUsername');
+          }
+        } catch (error: any) {
+          if (error.code === 429) {
+            if (error.rateLimit) {
+              await updateRateLimit(userId, error.rateLimit, 'userByUsername');
+            }
+            throw new Error('Rate limit exceeded. Please wait a few minutes before trying again.');
+          }
+          throw error;
+        }
+      }
+
+      // Fetch tweets with minimal parameters to reduce rate limit impact
+      const tweetResponse = await twitterClient.v2.userTimeline(twitterUserId, {
+        max_results: existingTweets?.length ? 5 : 10, // Fetch fewer tweets if we already have some
+        ...(config?.last_tweet_id ? { since_id: config.last_tweet_id } : {}),
+        'tweet.fields': ['created_at'],
+        exclude: ['retweets', 'replies']
+      }) as TwitterResponse;
+
+      // Update rate limit info
+      if (tweetResponse.rateLimit) {
+        await updateRateLimit(userId, tweetResponse.rateLimit, 'userTimeline');
+      }
+
+      const tweets = tweetResponse.data.data || [];
+      console.log(`Fetched ${tweets.length} tweets`);
+
+      if (tweets.length === 0) {
+        return {
+          success: true,
+          message: 'No new tweets found'
+        };
+      }
+
+      // Transform and store tweets
+      const transformedTweets = tweets.map(tweet => ({
+        user_id: userId,
+        source_tweet_id: tweet.id,
+        original_text: tweet.text,
+        translated_text: null,
+        image_urls: [],
+        status: 'pending',
+        created_at: tweet.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        author_name: username,
+        author_username: username,
+        author_profile_image: '',
+        error_message: null
+      }));
+
+      if (transformedTweets.length > 0) {
+        const { error: insertError } = await supabaseAdmin
+          .from('tweets')
+          .insert(transformedTweets);
+
+        if (insertError) {
+          console.error('Insert error:', insertError);
+          throw new Error(`Failed to store tweets: ${insertError.message}`);
+        }
+
+        await supabaseAdmin
+          .from('config')
+          .update({ 
+            last_tweet_id: transformedTweets[0].source_tweet_id,
+            updated_at: new Date().toISOString(),
+            error_message: null // Clear any previous error messages
+          })
+          .eq('user_id', userId);
+
+        return {
+          success: true,
+          message: `Successfully fetched ${transformedTweets.length} new tweets`
+        };
+      }
+
+      return {
+        success: true,
+        message: 'No new tweets to store'
+      };
+
+    } catch (error: any) {
+      if (error.code === 429) {
+        if (error.rateLimit) {
+          await updateRateLimit(userId, error.rateLimit, 'userTimeline');
+        }
+        const resetTime = new Date(Number(error.rateLimit?.reset) * 1000);
+        const waitMinutes = Math.ceil((resetTime.getTime() - Date.now()) / (1000 * 60));
+        
+        const errorMessage = `Rate limit exceeded. Please try again in ${waitMinutes} minutes.`;
+        console.error(errorMessage);
+        
+        await supabaseAdmin
+          .from('config')
+          .update({ 
+            error_message: errorMessage,
+            updated_at: new Date().toISOString()
+          })
+          .eq('user_id', userId);
+          
+        throw new Error(errorMessage);
+      }
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error in fetchTweetsInBackground:', error);
+    throw error;
+  }
+} 
