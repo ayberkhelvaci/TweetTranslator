@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabase } from '@/lib/supabase';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../lib/auth-config';
+import { authOptions } from '../auth/options';
 
 export async function GET() {
   try {
