@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../auth/[...nextauth]/route';
+import { authOptions } from '../../../lib/auth-config';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { translateText } from '@/lib/services/openai';
 
