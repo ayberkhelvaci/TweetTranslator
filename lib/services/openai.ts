@@ -1,5 +1,9 @@
 import OpenAI from 'openai';
 
+if (!process.env.OPENAI_API_KEY) {
+  throw new Error('Missing OpenAI API key');
+}
+
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
@@ -11,7 +15,7 @@ export async function translateText(text: string, targetLanguage: string): Promi
       messages: [
         {
           role: "system",
-          content: `You are a professional translator. Translate the following text to ${targetLanguage}. Maintain the original meaning and tone. Only respond with the translation, no explanations.`
+          content: `You are a professional translator. Translate the following text to ${targetLanguage}. Maintain the original meaning and tone.`
         },
         {
           role: "user",
@@ -19,16 +23,12 @@ export async function translateText(text: string, targetLanguage: string): Promi
         }
       ],
       temperature: 0.3,
+      max_tokens: 1000,
     });
 
-    const translation = response.choices[0]?.message?.content;
-    if (!translation) {
-      throw new Error('No translation received from OpenAI');
-    }
-
-    return translation.trim();
+    return response.choices[0]?.message?.content || text;
   } catch (error) {
-    console.error('OpenAI translation error:', error);
+    console.error('Translation error:', error);
     throw new Error('Failed to translate text');
   }
 } 
