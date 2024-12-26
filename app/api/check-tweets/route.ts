@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../auth/[...nextauth]/route';
+import { authOptions } from '../auth/options';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { TwitterApi } from 'twitter-api-v2';
+import { TwitterApi, TweetV2, UserV2 } from 'twitter-api-v2';
 
 export async function GET() {
   try {
@@ -57,7 +57,7 @@ export async function GET() {
       .single();
 
     // Fetch tweets
-    const tweets = await client.v2.userTimeline(targetUser.data.id, {
+    const tweetsResponse = await client.v2.userTimeline(targetUser.data.id, {
       'tweet.fields': ['created_at'],
       'user.fields': ['profile_image_url', 'username', 'name'],
       expansions: ['author_id'],
@@ -65,17 +65,18 @@ export async function GET() {
       ...(lastTweet ? { since_id: lastTweet.tweet_id } : {}),
     });
 
-    if (!tweets.data) {
+    const tweets = tweetsResponse.data;
+    if (!tweets || tweets.length === 0) {
       return NextResponse.json({ message: 'No new tweets found' });
     }
 
-    const tweetAuthor = tweets.includes?.users?.[0];
+    const tweetAuthor = tweetsResponse.includes?.users?.[0];
     
     // Store tweets in database
     const { error: upsertError } = await supabaseAdmin
       .from('tweets')
       .upsert(
-        tweets.data.map((tweet) => ({
+        tweets.map((tweet: TweetV2) => ({
           tweet_id: tweet.id,
           user_id: session.user.id,
           content: tweet.text,
@@ -94,7 +95,7 @@ export async function GET() {
     }
 
     // Update rate limits if provided
-    const rateLimits = tweets.rateLimit;
+    const rateLimits = tweetsResponse.rateLimit;
     if (rateLimits) {
       await supabaseAdmin
         .from('rate_limits')
@@ -108,7 +109,7 @@ export async function GET() {
 
     return NextResponse.json({ 
       message: 'Tweets checked successfully',
-      tweetsFound: tweets.data.length
+      tweetsFound: tweets.length
     });
 
   } catch (error) {
