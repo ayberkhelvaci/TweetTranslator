@@ -1,36 +1,26 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../../auth/[...nextauth]/route';
+import { authOptions } from '@/app/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
-export async function GET(request: Request) {
+export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { data: config, error } = await supabaseAdmin
-      .from('config')
-      .select('source_account, check_interval')
+    const { data: config } = await supabaseAdmin
+      .from('configurations')
+      .select('*')
       .eq('user_id', session.user.id)
       .single();
-
-    if (error) {
-      throw error;
-    }
 
     return NextResponse.json(config || {});
   } catch (error) {
     console.error('Error fetching monitoring config:', error);
     return NextResponse.json(
-      { 
-        error: error instanceof Error ? error.message : 'Failed to fetch configuration'
-      },
+      { error: error instanceof Error ? error.message : 'Failed to fetch monitoring config' },
       { status: 500 }
     );
   }
@@ -39,50 +29,35 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
-    
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
-    const { sourceAccount, checkInterval } = body;
+    const { target_account, check_interval } = body;
 
-    if (!sourceAccount || !checkInterval) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
+    if (!target_account || !check_interval) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    // Update only monitoring-related fields
-    const { error: updateError } = await supabaseAdmin
-      .from('config')
+    const { data, error } = await supabaseAdmin
+      .from('configurations')
       .upsert({
         user_id: session.user.id,
-        source_account: sourceAccount,
-        check_interval: checkInterval,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'user_id',
-      });
+        target_account,
+        check_interval,
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
 
-    if (updateError) {
-      throw updateError;
-    }
+    if (error) throw error;
 
-    return NextResponse.json({
-      success: true,
-      message: 'Monitoring configuration updated'
-    });
+    return NextResponse.json(data);
   } catch (error) {
-    console.error('Error updating monitoring config:', error);
+    console.error('Error saving monitoring config:', error);
     return NextResponse.json(
-      { 
-        error: error instanceof Error ? error.message : 'Failed to update configuration'
-      },
+      { error: error instanceof Error ? error.message : 'Failed to save monitoring config' },
       { status: 500 }
     );
   }

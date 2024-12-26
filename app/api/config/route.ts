@@ -1,142 +1,63 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../auth/[...nextauth]/route';
-import { saveConfiguration } from '@/lib/services/configService';
+import { authOptions } from '@/app/lib/auth';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
-// GET configuration
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
-    
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Get configuration
-    const { data: config, error } = await supabaseAdmin
-      .from('config')
+    const { data: config } = await supabaseAdmin
+      .from('configurations')
       .select('*')
       .eq('user_id', session.user.id)
       .single();
 
-    if (error) {
-      console.error('Error fetching configuration:', error);
-      return NextResponse.json(
-        { error: 'Failed to fetch configuration' },
-        { status: 500 }
-      );
-    }
-
     return NextResponse.json(config || {});
   } catch (error) {
-    console.error('Error in configuration endpoint:', error);
+    console.error('Error fetching config:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: error instanceof Error ? error.message : 'Failed to fetch config' },
       { status: 500 }
     );
   }
 }
 
-// POST to update configuration
 export async function POST(request: Request) {
   try {
     const session = await getServerSession(authOptions);
-    
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
-    console.log('Received configuration:', body);
+    const { target_account, check_interval } = body;
 
-    if (!body.source_account || !body.check_interval || !body.target_language) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
-    }
-    
-    // Save configuration and fetch tweets
-    const result = await saveConfiguration(session.user.id, {
-      sourceAccount: body.source_account,
-      checkInterval: body.check_interval,
-      targetLanguage: body.target_language,
-    });
-
-    if (!result.success) {
-      return NextResponse.json(
-        { error: 'Failed to save configuration' },
-        { status: 500 }
-      );
+    if (!target_account || !check_interval) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
     }
 
-    return NextResponse.json({
-      success: true,
-      message: `Configuration saved successfully. Found ${result.tweetsFound} new tweets.`
-    });
-  } catch (error) {
-    console.error('Error in configuration endpoint:', error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Failed to save configuration' },
-      { status: 500 }
-    );
-  }
-}
-
-export async function DELETE() {
-  try {
-    const session = await getServerSession(authOptions);
-    
-    if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
-
-    // Delete configuration
-    const { error: configError } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('configurations')
-      .delete()
-      .eq('user_id', session.user.id);
+      .upsert({
+        user_id: session.user.id,
+        target_account,
+        check_interval,
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
 
-    if (configError) {
-      console.error('Error deleting configuration:', configError);
-      return NextResponse.json(
-        { error: 'Failed to delete configuration' },
-        { status: 500 }
-      );
-    }
+    if (error) throw error;
 
-    // Delete associated tweets
-    const { error: tweetsError } = await supabaseAdmin
-      .from('tweets')
-      .delete()
-      .eq('user_id', session.user.id);
-
-    if (tweetsError) {
-      console.error('Error deleting tweets:', tweetsError);
-      return NextResponse.json(
-        { error: 'Failed to delete tweets' },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: 'Monitoring canceled successfully'
-    });
+    return NextResponse.json(data);
   } catch (error) {
-    console.error('Error in configuration endpoint:', error);
+    console.error('Error saving config:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: error instanceof Error ? error.message : 'Failed to save config' },
       { status: 500 }
     );
   }
