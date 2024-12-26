@@ -65,7 +65,7 @@ export async function GET() {
       ...(lastTweet ? { since_id: lastTweet.tweet_id } : {}),
     });
 
-    const tweets = tweetsResponse.data;
+    const tweets = tweetsResponse.tweets;
     if (!tweets || tweets.length === 0) {
       return NextResponse.json({ message: 'No new tweets found' });
     }
@@ -76,7 +76,7 @@ export async function GET() {
     const { error: upsertError } = await supabaseAdmin
       .from('tweets')
       .upsert(
-        tweets.map((tweet: TweetV2) => ({
+        tweets.map((tweet) => ({
           tweet_id: tweet.id,
           user_id: session.user.id,
           content: tweet.text,
