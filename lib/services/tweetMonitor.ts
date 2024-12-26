@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '@/lib/supabase-admin';
+import { supabaseAdmin } from '../supabase-admin';
 
 export async function checkLatestTweet(userId: string) {
   try {

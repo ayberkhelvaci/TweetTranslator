@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/options';
-import { supabaseAdmin } from '@/lib/supabase-admin';
-import { translateText } from '@/lib/services/openai';
+import { supabaseAdmin } from '../../../lib/supabase-admin';
+import { translateText } from '../../../lib/services/openai';
 
 export async function POST(request: Request) {
   try {
