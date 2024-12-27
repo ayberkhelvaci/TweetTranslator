@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../../auth/[...nextauth]/route';
-import { fetchTweetsManually } from '@/lib/services/configService';
+import { authOptions } from '../../auth/options';
+import { fetchTweetsManually } from '../../../../lib/services/configService';
 
 export async function POST() {
   try {

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '../../auth/[...nextauth]/route';
-import { supabaseAdmin } from '@/lib/supabase-admin';
+import { authOptions } from '../../auth/options';
+import { supabaseAdmin } from '../../../../lib/supabase-admin';
 import { TwitterApi } from 'twitter-api-v2';
 
 export async function GET(request: Request) {
@@ -73,7 +73,15 @@ export async function GET(request: Request) {
     });
 
     // Transform tweets to a more friendly format
-    const transformedTweets = [];
+    const transformedTweets: Array<{
+      id: string;
+      text: string;
+      images: string[];
+      timestamp: string;
+      authorName: string;
+      authorUsername: string;
+      authorImage: string;
+    }> = [];
     for await (const tweet of tweets) {
       const media = tweets.includes?.media || [];
       const author = tweets.includes?.users?.find(u => u.id === tweet.author_id);

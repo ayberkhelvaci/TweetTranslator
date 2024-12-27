@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase-admin';
-import { fetchTweetsManually } from '@/lib/services/configService';
+import { supabaseAdmin } from '../../../../lib/supabase-admin';
+import { fetchTweetsManually } from '../../../../lib/services/configService';
+
+interface ProcessResult {
+  user_id: string;
+  status: 'success' | 'error';
+  message: string;
+}
 
 export async function POST(req: Request) {
   try {
@@ -19,7 +25,7 @@ export async function POST(req: Request) {
       throw new Error('Failed to fetch configurations');
     }
 
-    const results = [];
+    const results: ProcessResult[] = [];
     
     // Process each configuration
     for (const config of configs) {

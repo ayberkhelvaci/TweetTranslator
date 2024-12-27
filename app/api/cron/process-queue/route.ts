@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase-admin';
+import { supabaseAdmin } from '../../../../lib/supabase-admin';
 import { TwitterApi } from 'twitter-api-v2';
+
+interface QueueResult {
+  tweet_id: string;
+  status: 'success' | 'error';
+  message: string;
+}
 
 export async function POST(req: Request) {
   try {
@@ -21,7 +27,7 @@ export async function POST(req: Request) {
       throw new Error('Failed to fetch queued tweets');
     }
 
-    const results = [];
+    const results: QueueResult[] = [];
 
     // Process each queued tweet
     for (const tweet of queuedTweets || []) {

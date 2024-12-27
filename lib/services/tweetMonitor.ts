@@ -1,6 +1,17 @@
 import { supabaseAdmin } from '../supabase-admin';
 
-export async function checkLatestTweet(userId: string) {
+export interface Tweet {
+  tweet_id: string;
+  user_id: string;
+  content: string;
+  translated_text?: string;
+  status: 'pending' | 'translating' | 'translated' | 'posted' | 'failed';
+  posted_at: string;
+  updated_at: string;
+  error_message?: string;
+}
+
+export async function checkLatestTweet(userId: string): Promise<Tweet[]> {
   try {
     // Get user's configuration
     const { data: config, error: configError } = await supabaseAdmin

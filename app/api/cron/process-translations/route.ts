@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
-import { translateText } from '@/lib/services/openai';
+import { supabase } from '../../../../lib/supabase';
+import { translateText } from '../../../../lib/services/openai';
 
 async function getConfig() {
   const { data, error } = await supabase
