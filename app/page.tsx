@@ -5,11 +5,13 @@ import { TweetList } from './components/TweetList';
 import { ConfigurationForm } from './components/ConfigurationForm';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
+import { Tweet } from '../types/tweet';
 
 interface ConfigFormData {
   source_account: string;
   check_interval: number;
   target_language: string;
+  registration_timestamp?: string;
 }
 
 export default function Home() {
@@ -18,6 +20,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [apiStatus, setApiStatus] = useState<string>('Active & Working');
   const [initialConfig, setInitialConfig] = useState<ConfigFormData | null>(null);
+  const [tweets, setTweets] = useState<Tweet[]>([]);
 
   React.useEffect(() => {
     if (status === 'unauthenticated') {
@@ -25,8 +28,37 @@ export default function Home() {
     } else if (status === 'authenticated') {
       // Load existing configuration
       fetchConfig();
+      fetchTweets();
     }
   }, [status, router]);
+
+  const fetchTweets = async () => {
+    try {
+      const response = await fetch('/api/tweets');
+      if (!response.ok) {
+        throw new Error('Failed to fetch tweets');
+      }
+      const data = await response.json();
+      setTweets(data);
+    } catch (error) {
+      console.error('Error fetching tweets:', error);
+    }
+  };
+
+  const handleTranslateAndPost = async (tweetId: string) => {
+    try {
+      const response = await fetch(`/api/tweets/${tweetId}/translate`, {
+        method: 'POST',
+      });
+      if (!response.ok) {
+        throw new Error('Failed to translate and post tweet');
+      }
+      // Refresh tweets after translation/posting
+      fetchTweets();
+    } catch (error) {
+      console.error('Error translating/posting tweet:', error);
+    }
+  };
 
   const fetchConfig = async () => {
     try {
@@ -104,7 +136,7 @@ export default function Home() {
         {/* Configuration Section */}
         <div className="bg-black rounded-2xl shadow-sm p-6">
           <h2 className="text-xl font-semibold text-white mb-6">Configuration</h2>
-          <ConfigurationForm onSubmit={handleSubmit} initialData={initialConfig} />
+          <ConfigurationForm onSubmit={handleSubmit} initialData={initialConfig || undefined} />
           {error && (
             <div className="mt-4 p-3 bg-red-900 text-red-200 rounded-xl">
               {error}
@@ -114,7 +146,7 @@ export default function Home() {
 
         {/* Tweet List */}
         <div className="space-y-4">
-          <TweetList />
+          <TweetList tweets={tweets} onTranslateAndPost={handleTranslateAndPost} />
         </div>
       </div>
     </main>

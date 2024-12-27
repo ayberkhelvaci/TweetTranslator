@@ -4,22 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { format } from 'date-fns';
 import { TranslationModal } from './TranslationModal';
-
-interface Tweet {
-  source_tweet_id: string;
-  original_text: string;
-  translated_text?: string;
-  status: 'pending' | 'translating' | 'translated' | 'posted' | 'failed' | 'queued';
-  error_message?: string;
-  created_at: string;
-  retry_after?: string;
-  image_urls?: string[];
-  author?: {
-    username: string;
-    name: string;
-    profile_image_url: string;
-  };
-}
+import { Tweet } from '../../types/tweet';
 
 interface TweetCardProps {
   tweet: Tweet;
@@ -278,8 +263,9 @@ export function TweetCard({
       <TranslationModal
         isOpen={isTranslationModalOpen}
         onClose={() => setIsTranslationModalOpen(false)}
-        tweet={tweet}
-        onPost={handlePostManually}
+        originalText={tweet.original_text}
+        translatedText={tweet.translated_text || undefined}
+        isLoading={isTranslating}
       />
     </>
   );
