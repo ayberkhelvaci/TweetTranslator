@@ -309,7 +309,7 @@ async function fetchTweetsInBackground(userId: string, username: string) {
       }
 
       // Transform and store tweets
-      const transformedTweets = tweets.map(tweet => ({
+      const transformedTweets = tweets.map((tweet: { id: string; text: string; created_at?: string }) => ({
         user_id: userId,
         source_tweet_id: tweet.id,
         original_text: tweet.text,
