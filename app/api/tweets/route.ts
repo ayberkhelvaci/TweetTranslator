@@ -3,6 +3,9 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/options';
 import { supabaseAdmin } from '../../../lib/supabase-admin';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'edge';
+
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);

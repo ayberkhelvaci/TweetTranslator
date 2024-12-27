@@ -4,6 +4,9 @@ import { authOptions } from '../../auth/options';
 import { supabaseAdmin } from '../../../../lib/supabase-admin';
 import { TwitterApi } from 'twitter-api-v2';
 
+export const dynamic = 'force-dynamic';
+export const runtime = 'edge';
+
 export async function GET(request: Request) {
   try {
     const session = await getServerSession(authOptions);
