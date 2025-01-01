@@ -2,22 +2,32 @@ name: Tweet Monitor Cron Jobs
 
 on:
   schedule:
-    - cron: '*/15 * * * *'  # Check for new tweets every 15 minutes
-    - cron: '*/5 * * * *'   # Process queue every 5 minutes
+    - cron: '*/15 * * * *'  # Run every 15 minutes
   workflow_dispatch:  # Allow manual trigger
 
 jobs:
-  check-tweets:
+  auto-fetch:
     runs-on: ubuntu-latest
     steps:
-      - name: Check New Tweets
+      - name: Fetch New Tweets (Auto Mode)
         run: |
           curl -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            ${{ secrets.VERCEL_URL }}/api/cron/check-tweets
+            ${{ secrets.VERCEL_URL }}/api/cron/auto-fetch
+
+  auto-translate:
+    runs-on: ubuntu-latest
+    needs: auto-fetch
+    steps:
+      - name: Translate Pending Tweets
+        run: |
+          curl -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            ${{ secrets.VERCEL_URL }}/api/cron/auto-translate
 
   process-queue:
     runs-on: ubuntu-latest
+    needs: auto-translate
     steps:
       - name: Process Tweet Queue
         run: |
