@@ -10,7 +10,10 @@ export async function POST(req: Request) {
   try {
     // Verify the secret token
     const authHeader = req.headers.get('authorization');
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+    const token = authHeader?.replace('Bearer ', '').trim();
+    
+    if (!token || token !== process.env.CRON_SECRET) {
+      console.log('Auth failed. Received token:', token?.slice(0, 10));
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
