@@ -1,5 +1,19 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { TwitterApi } from 'twitter-api-v2';
+import crypto from 'crypto';
+
+// Function to generate a UUID from a string
+function generateUUID(str: string): string {
+  const hash = crypto.createHash('sha256').update(str).digest();
+  const uuid = [
+    hash.slice(0, 4).toString('hex'),
+    hash.slice(4, 6).toString('hex'),
+    hash.slice(6, 8).toString('hex'),
+    hash.slice(8, 10).toString('hex'),
+    hash.slice(10, 16).toString('hex'),
+  ].join('-');
+  return uuid;
+}
 
 export interface ConfigData {
   sourceAccount: string;
@@ -137,13 +151,14 @@ export async function saveConfiguration(userId: string, config: ConfigData) {
       throw new Error('Missing required configuration fields');
     }
 
+    const userUUID = generateUUID(userId);
     const now = new Date().toISOString();
     
     // Get existing configuration
     const { data: existingConfig } = await supabaseAdmin
       .from('config')
       .select('*')
-      .eq('user_id', userId)
+      .eq('user_id', userUUID)
       .single();
 
     // Clean up the source account: remove any existing @ and add just one
@@ -152,7 +167,7 @@ export async function saveConfiguration(userId: string, config: ConfigData) {
 
     // Prepare configuration data
     const configData = {
-      user_id: userId,
+      user_id: userUUID,
       source_account: sourceAccount,
       check_interval: config.checkInterval,
       target_language: config.targetLanguage,
@@ -161,13 +176,15 @@ export async function saveConfiguration(userId: string, config: ConfigData) {
 
     console.log('Saving configuration:', configData);
 
-    // Upsert configuration (update if exists, insert if not)
-    const { error: upsertError } = await supabaseAdmin
-      .from('config')
-      .upsert(configData, {
-        onConflict: 'user_id',
-        ignoreDuplicates: false
-      });
+    // If no existing config, insert new. If exists, update.
+    const { error: upsertError } = existingConfig
+      ? await supabaseAdmin
+          .from('config')
+          .update(configData)
+          .eq('user_id', userUUID)
+      : await supabaseAdmin
+          .from('config')
+          .insert([configData]);
 
     if (upsertError) {
       console.error('Config error:', upsertError);
@@ -186,15 +203,17 @@ export async function saveConfiguration(userId: string, config: ConfigData) {
 
 export async function fetchTweetsManually(userId: string) {
   try {
+    const userUUID = generateUUID(userId);
+    
     // Check rate limits first
-    const currentLimit = await checkAndUpdateRateLimit(userId);
+    const currentLimit = await checkAndUpdateRateLimit(userUUID);
     console.log('Current rate limit check result:', currentLimit);
 
     // Get user's configuration
     const { data: config, error: configError } = await supabaseAdmin
       .from('config')
       .select('source_account')
-      .eq('user_id', userId)
+      .eq('user_id', userUUID)
       .single();
 
     if (configError || !config) {
@@ -205,7 +224,7 @@ export async function fetchTweetsManually(userId: string) {
     const username = config.source_account.replace(/^@+/, '');
     
     // Fetch tweets
-    const result = await fetchTweetsInBackground(userId, username);
+    const result = await fetchTweetsInBackground(userUUID, username);
     return result;
   } catch (error) {
     console.error('Error in fetchTweetsManually:', error);
@@ -308,20 +327,17 @@ async function fetchTweetsInBackground(userId: string, username: string) {
         };
       }
 
-      // Transform and store tweets
+      // Transform tweets to match our schema
       const transformedTweets = tweets.map((tweet: { id: string; text: string; created_at?: string }) => ({
         user_id: userId,
         source_tweet_id: tweet.id,
         original_text: tweet.text,
         translated_text: null,
-        image_urls: [],
-        status: 'pending',
-        created_at: tweet.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        author_name: username,
         author_username: username,
         author_profile_image: '',
-        error_message: null
+        status: 'pending',
+        created_at: tweet.created_at || new Date().toISOString(),
+        updated_at: new Date().toISOString()
       }));
 
       if (transformedTweets.length > 0) {
@@ -338,8 +354,7 @@ async function fetchTweetsInBackground(userId: string, username: string) {
           .from('config')
           .update({ 
             last_tweet_id: transformedTweets[0].source_tweet_id,
-            updated_at: new Date().toISOString(),
-            error_message: null // Clear any previous error messages
+            updated_at: new Date().toISOString()
           })
           .eq('user_id', userId);
 

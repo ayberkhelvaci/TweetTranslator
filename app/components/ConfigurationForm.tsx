@@ -1,117 +1,109 @@
 import React, { useState, useEffect } from 'react';
-import { MonitoringInfo } from './MonitoringInfo';
-import { toast } from 'react-hot-toast';
-
-interface ConfigFormData {
-  source_account: string;
-  check_interval: number;
-  target_language: string;
-}
 
 interface ConfigurationFormProps {
-  onSubmit: (data: ConfigFormData) => Promise<any>;
-  initialData?: ConfigFormData & {
-    registration_timestamp?: string;
-  };
+  onSubmit: () => Promise<void>;
 }
 
-const CHECK_INTERVALS = [
-  { label: 'Every 15 Minutes', value: 15 },
-  { label: 'Every 30 Minutes', value: 30 },
-  { label: 'Every Hour', value: 60 },
-  { label: 'Every 2 Hours', value: 120 },
-  { label: 'Every 6 Hours', value: 360 },
-  { label: 'Every 12 Hours', value: 720 },
-  { label: 'Every Day', value: 1440 }
-];
+interface ConfigData {
+  source_account: string;
+  target_language: string;
+  check_interval: number;
+  registration_timestamp?: string;
+}
 
-export function ConfigurationForm({ onSubmit, initialData }: ConfigurationFormProps) {
-  const [sourceAccount, setSourceAccount] = useState(initialData?.source_account?.replace(/^@+/, '') || '');
-  const [checkInterval, setCheckInterval] = useState(initialData?.check_interval || 30);
-  const [targetLanguage, setTargetLanguage] = useState(initialData?.target_language || 'en');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [monitoringStarted, setMonitoringStarted] = useState<string | null>(initialData?.registration_timestamp || null);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
+  const [sourceAccount, setSourceAccount] = useState('');
+  const [targetLanguage, setTargetLanguage] = useState('en');
+  const [checkInterval, setCheckInterval] = useState(30);
+  const [isSaving, setIsSaving] = useState(false);
   const [isFetching, setIsFetching] = useState(false);
-  const [rateLimitReset, setRateLimitReset] = useState<number | null>(null);
-  const [countdown, setCountdown] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [monitoringStarted, setMonitoringStarted] = useState<string | null>(null);
 
+  // Load existing configuration
   useEffect(() => {
-    if (initialData) {
-      setSourceAccount(initialData.source_account?.replace(/^@+/, '') || '');
-      setCheckInterval(initialData.check_interval || 30);
-      setTargetLanguage(initialData.target_language || 'en');
-      setMonitoringStarted(initialData.registration_timestamp || null);
+    async function loadConfig() {
+      try {
+        const response = await fetch('/api/config');
+        if (!response.ok) {
+          throw new Error('Failed to load configuration');
+        }
+        const data: ConfigData = await response.json();
+        
+        setSourceAccount(data.source_account || '');
+        setTargetLanguage(data.target_language || 'en');
+        setCheckInterval(data.check_interval || 30);
+        setMonitoringStarted(data.registration_timestamp || null);
+      } catch (error) {
+        console.error('Error loading configuration:', error);
+        setError(error instanceof Error ? error.message : 'Failed to load configuration');
+      } finally {
+        setIsLoading(false);
+      }
     }
-  }, [initialData]);
 
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (countdown && countdown > 0) {
-      timer = setInterval(() => {
-        setCountdown(prev => prev ? prev - 1 : null);
-      }, 1000);
-    } else if (countdown === 0) {
-      setRateLimitReset(null);
-      setCountdown(null);
-    }
-    return () => clearInterval(timer);
-  }, [countdown]);
+    loadConfig();
+  }, []);
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
+    setIsSaving(true);
+    setError(null);
 
     try {
-      const formData: ConfigFormData = {
-        source_account: sourceAccount,
-        check_interval: checkInterval,
-        target_language: targetLanguage
-      };
-      
-      await onSubmit(formData);
-      setMonitoringStarted(new Date().toISOString());
-      toast.success('Configuration saved successfully');
+      const response = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source_account: sourceAccount.replace(/^@/, ''), // Remove @ if present
+          target_language: targetLanguage,
+          check_interval: checkInterval,
+        }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to save configuration');
+      }
+
+      await onSubmit();
     } catch (error) {
       console.error('Error saving configuration:', error);
-      toast.error('Failed to save configuration');
+      setError(error instanceof Error ? error.message : 'Failed to save configuration');
     } finally {
-      setIsSubmitting(false);
+      setIsSaving(false);
     }
   };
 
   const handleFetchTweets = async () => {
-    if (isFetching || countdown) return;
-    
     setIsFetching(true);
+    setError(null);
+
     try {
       const response = await fetch('/api/tweets/fetch', {
-        method: 'POST'
+        method: 'POST',
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        const errorMessage = data.error || 'Failed to fetch tweets';
-        
-        // Check if it's a rate limit error
-        if (errorMessage.includes('Rate limit exceeded')) {
-          const minutes = parseInt(errorMessage.match(/(\d+) minutes/)?.[1] || '0');
-          if (minutes > 0) {
-            setRateLimitReset(Date.now() + minutes * 60 * 1000);
-            setCountdown(minutes * 60);
-            toast.error(`Rate limit exceeded. Please wait ${minutes} minutes.`);
-            return;
-          }
-        }
-        
-        throw new Error(errorMessage);
+        const data = await response.json();
+        throw new Error(data.error || 'Failed to fetch tweets');
       }
 
-      toast.success(data.message || 'Successfully fetched tweets');
+      await onSubmit();
     } catch (error) {
       console.error('Error fetching tweets:', error);
-      toast.error(error instanceof Error ? error.message : 'Failed to fetch tweets');
+      setError(error instanceof Error ? error.message : 'Failed to fetch tweets');
     } finally {
       setIsFetching(false);
     }
@@ -119,149 +111,207 @@ export function ConfigurationForm({ onSubmit, initialData }: ConfigurationFormPr
 
   const handleCancelMonitoring = async () => {
     try {
+      setIsSaving(true);
+      setError(null);
+      
       const response = await fetch('/api/config', {
         method: 'DELETE'
       });
 
-      if (response.ok) {
-        setMonitoringStarted(null);
-        setSourceAccount('');
-        setCheckInterval(30);
-        setTargetLanguage('en');
-        toast.success('Monitoring cancelled successfully');
-      } else {
-        toast.error('Failed to cancel monitoring');
+      if (!response.ok) {
+        throw new Error('Failed to cancel monitoring');
       }
+
+      setMonitoringStarted(null);
+      setSourceAccount('');
+      setCheckInterval(30);
+      setTargetLanguage('en');
+      await onSubmit();
     } catch (error) {
       console.error('Error canceling monitoring:', error);
-      toast.error('Failed to cancel monitoring');
+      setError(error instanceof Error ? error.message : 'Failed to cancel monitoring');
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const selectedInterval = CHECK_INTERVALS.find(interval => interval.value === checkInterval);
-
-  const formatCountdown = (seconds: number) => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
-  };
+  if (isLoading) {
+    return (
+      <div className="space-y-6 animate-pulse">
+        <div className="bg-white rounded-2xl p-6 h-20" />
+        <div className="bg-black rounded-2xl p-6 h-64" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {monitoringStarted && (
-        <MonitoringInfo
-          sourceAccount={sourceAccount}
-          startDate={monitoringStarted}
-          onCancel={handleCancelMonitoring}
-        />
-      )}
+      {/* API Information Section */}
+      <div className="bg-white rounded-2xl p-6">
+        <div className="flex justify-between items-center">
+          <h2 className="text-2xl font-bold text-black">API Information</h2>
+          <div className="flex items-center space-x-4">
+            <div className="px-4 py-1 bg-green-50 text-green-700 rounded-full text-sm">
+              Active & Working
+            </div>
+            <a
+              href="/settings/api-keys"
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-full text-sm font-medium hover:bg-blue-100 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+              </svg>
+              <span>Go to Credentials</span>
+            </a>
+          </div>
+        </div>
+      </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="grid grid-cols-2 gap-6">
-          {/* Source Account */}
-          <div className="space-y-2">
-            <label className="block text-gray-400 text-sm">
-              Source Account
-            </label>
-            <div className="relative">
-              <span className="absolute inset-y-0 left-4 flex items-center text-gray-400">
-                @
-              </span>
+      {/* Configuration Section */}
+      <div className="bg-black rounded-2xl p-6">
+        <h2 className="text-2xl font-bold text-white mb-6">Configuration</h2>
+        
+        {/* Monitoring Status */}
+        <div className="mb-8 border border-gray-800 rounded-xl p-6 bg-[#1a1d21]">
+          {monitoringStarted ? (
+            <div className="text-gray-300">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center space-x-3">
+                  <div className="relative">
+                    <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse" />
+                    <div className="absolute -inset-1 bg-green-500/20 rounded-full animate-ping" />
+                  </div>
+                  <span className="text-lg font-medium">Monitoring Active</span>
+                </div>
+                <button
+                  onClick={handleCancelMonitoring}
+                  disabled={isSaving}
+                  className="px-3 py-1.5 bg-red-500/10 text-red-500 rounded-full text-sm hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                >
+                  {isSaving ? 'Canceling...' : 'Cancel Monitoring'}
+                </button>
+              </div>
+              <div className="space-y-2 ml-6">
+                <div className="flex items-center space-x-2 text-gray-400">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  <span>Started on {formatDate(monitoringStarted)}</span>
+                </div>
+                <div className="flex items-center space-x-2 text-gray-400">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Checking every {checkInterval} minutes</span>
+                </div>
+                <div className="flex items-center space-x-2 text-gray-400">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  <span>Monitoring {sourceAccount.startsWith('@') ? '' : '@'}{sourceAccount}</span>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-gray-300">
+              <div className="flex items-center space-x-3 mb-3">
+                <div className="relative">
+                  <div className="w-3 h-3 bg-yellow-500 rounded-full" />
+                  <div className="absolute -inset-1 bg-yellow-500/20 rounded-full" />
+                </div>
+                <span className="text-lg font-medium">Monitoring Not Started</span>
+              </div>
+              <div className="ml-6 space-y-2">
+                <div className="flex items-center space-x-2 text-gray-400">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Configure the settings below and save to start monitoring</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div className="grid grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <label className="block text-gray-400 text-sm">
+                Source Account
+              </label>
               <input
                 type="text"
                 value={sourceAccount}
                 onChange={(e) => setSourceAccount(e.target.value)}
-                placeholder="username"
-                className="w-full pl-8 pr-4 py-2.5 bg-gray-900 text-white rounded-xl placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="@username"
+                className="w-full px-4 py-2 bg-[#1a1d21] text-white rounded-lg placeholder-gray-500"
                 required
               />
             </div>
-          </div>
 
-          {/* Check Interval */}
-          <div className="space-y-2">
-            <label className="block text-gray-400 text-sm">
-              Check Interval
-            </label>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-                className="w-full px-4 py-2.5 bg-gray-900 text-white rounded-xl flex items-center justify-between hover:bg-gray-800 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+            <div className="space-y-2">
+              <label className="block text-gray-400 text-sm">
+                Check Interval
+              </label>
+              <select
+                value={checkInterval}
+                onChange={(e) => setCheckInterval(Number(e.target.value))}
+                className="w-full px-4 py-2 bg-[#1a1d21] text-white rounded-lg appearance-none"
+                required
               >
-                <span>{selectedInterval?.label || 'Select interval'}</span>
-                <svg
-                  className={`w-5 h-5 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              
-              {isDropdownOpen && (
-                <div className="absolute z-10 w-full mt-2 bg-gray-900 rounded-xl shadow-lg">
-                  <div className="py-1">
-                    {CHECK_INTERVALS.map((interval) => (
-                      <button
-                        key={interval.value}
-                        type="button"
-                        onClick={() => {
-                          setCheckInterval(interval.value);
-                          setIsDropdownOpen(false);
-                        }}
-                        className="w-full px-4 py-2 text-left text-white hover:bg-gray-800 transition-colors"
-                      >
-                        {interval.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+                <option value={30}>Every 30 Minutes</option>
+                <option value={5}>Every 5 Minutes</option>
+                <option value={15}>Every 15 Minutes</option>
+                <option value={60}>Every Hour</option>
+              </select>
             </div>
           </div>
-        </div>
 
-        {/* Target Language */}
-        <div className="space-y-2">
-          <label className="block text-gray-400 text-sm">
-            Target Language
-          </label>
-          <select
-            value={targetLanguage}
-            onChange={(e) => setTargetLanguage(e.target.value)}
-            className="w-full px-4 py-2.5 bg-gray-900 text-white rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-            required
-          >
-            <option value="en">English</option>
-            <option value="es">Spanish</option>
-            <option value="fr">French</option>
-            <option value="de">German</option>
-            <option value="it">Italian</option>
-            <option value="pt">Portuguese</option>
-            <option value="tr">Turkish</option>
-          </select>
-        </div>
+          <div className="space-y-2">
+            <label className="block text-gray-400 text-sm">
+              Target Language
+            </label>
+            <select
+              value={targetLanguage}
+              onChange={(e) => setTargetLanguage(e.target.value)}
+              className="w-full px-4 py-2 bg-[#1a1d21] text-white rounded-lg appearance-none"
+              required
+            >
+              <option value="en">English</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="it">Italian</option>
+              <option value="pt">Portuguese</option>
+              <option value="tr">Turkish</option>
+            </select>
+          </div>
 
-        <div className="flex justify-end space-x-4">
-          <button
-            type="button"
-            onClick={handleFetchTweets}
-            disabled={isFetching || !monitoringStarted || Boolean(countdown)}
-            className="px-6 py-2.5 bg-gray-600 text-white rounded-xl font-medium hover:bg-gray-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 disabled:opacity-75 disabled:cursor-not-allowed"
-          >
-            {isFetching ? 'Fetching...' : countdown ? `Wait ${formatCountdown(countdown)}` : 'Fetch Tweets'}
-          </button>
-          <button
-            type="submit"
-            disabled={isSubmitting}
-            className="px-6 py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-75 disabled:cursor-not-allowed"
-          >
-            {isSubmitting ? 'Saving...' : 'Save Configuration'}
-          </button>
-        </div>
-      </form>
+          {error && (
+            <div className="p-3 bg-red-900/10 text-red-600 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-4">
+            <button
+              type="button"
+              onClick={handleFetchTweets}
+              disabled={isFetching}
+              className="px-6 py-2 bg-gray-600 text-white rounded-full hover:bg-gray-700 transition-colors disabled:opacity-50"
+            >
+              {isFetching ? 'Fetching...' : 'Fetch Tweets'}
+            </button>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="px-6 py-2 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors disabled:opacity-50"
+            >
+              {isSaving ? 'Saving...' : 'Save Configuration'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 } 

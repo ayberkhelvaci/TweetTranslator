@@ -21,7 +21,7 @@ export default function RootLayout({
             {/* Header */}
             <header className="bg-white border-b border-gray-100">
               <div className="max-w-7xl mx-auto px-4 h-16 flex justify-between items-center">
-                <h1 className="text-xl font-semibold text-gray-900">Tweet Translator</h1>
+                <a href="/" className="text-xl font-semibold text-gray-900 hover:text-blue-600 transition-colors">Tweet Translator</a>
                 <UserMenu />
               </div>
             </header>

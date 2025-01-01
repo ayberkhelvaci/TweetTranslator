@@ -8,16 +8,14 @@ import { Tweet } from '../../types/tweet';
 
 interface TweetCardProps {
   tweet: Tweet;
-  onTranslateAndPost?: (tweetId: string) => void;
-  onAction?: () => void;
-  actionLabel?: string;
+  onTranslate: () => void;
+  onPost: () => void;
 }
 
 export function TweetCard({ 
   tweet: initialTweet, 
-  onTranslateAndPost,
-  onAction,
-  actionLabel
+  onTranslate,
+  onPost
 }: TweetCardProps) {
   const [tweet, setTweet] = useState<Tweet>(initialTweet);
   const [isTranslationModalOpen, setIsTranslationModalOpen] = useState(false);
@@ -25,22 +23,16 @@ export function TweetCard({
   const [isPosting, setIsPosting] = useState(false);
   const [translationError, setTranslationError] = useState<string | null>(null);
 
-  // Update local tweet when prop changes, but preserve posted status
+  // Update local tweet when prop changes
   useEffect(() => {
-    setTweet(prev => {
-      // If the tweet was already posted, keep it posted
-      if (prev.status === 'posted') {
-        return { ...initialTweet, status: 'posted' };
-      }
-      return initialTweet;
-    });
+    setTweet(initialTweet);
   }, [initialTweet]);
 
   const getStatusBadge = (status: Tweet['status']) => {
     if (isPosting) return 'Posting...';
     switch (status) {
       case 'pending':
-        return 'Status: Pending Action';
+        return 'Pending Action';
       case 'translating':
         return 'Translating...';
       case 'translated':
@@ -56,17 +48,23 @@ export function TweetCard({
     }
   };
 
-  const getStatusColor = (status: Tweet['status']) => {
-    if (isPosting) return 'bg-blue-100 text-blue-700';
+  const getStatusStyle = (status: Tweet['status']) => {
+    if (isPosting) return 'bg-blue-50 text-blue-600';
     switch (status) {
-      case 'queued':
-        return 'bg-yellow-100 text-yellow-700';
+      case 'pending':
+        return 'bg-rose-50 text-rose-600';
+      case 'translating':
+        return 'bg-blue-50 text-blue-600';
+      case 'translated':
+        return 'bg-amber-50 text-amber-600';
       case 'posted':
-        return 'bg-green-100 text-green-700';
+        return 'bg-green-50 text-green-600';
       case 'failed':
-        return 'bg-red-100 text-red-700';
+        return 'bg-red-50 text-red-600';
+      case 'queued':
+        return 'bg-yellow-50 text-yellow-600';
       default:
-        return 'bg-gray-100 text-gray-700';
+        return 'bg-gray-50 text-gray-600';
     }
   };
 
@@ -91,7 +89,7 @@ export function TweetCard({
         }
 
         // Don't show modal immediately after first translation
-        onTranslateAndPost?.(tweet.source_tweet_id); // Refresh tweet list to show new status
+        onTranslate(); // Refresh tweet list to show new status
       } catch (error) {
         console.error('Error translating tweet:', error);
         setTranslationError(error instanceof Error ? error.message : 'Failed to translate tweet');
@@ -127,7 +125,7 @@ export function TweetCard({
           setTweet(prev => ({ ...prev, status: 'posted' }));
           setTranslationError('Tweet was already posted');
           // Refresh to ensure database is updated
-          onTranslateAndPost?.(tweet.source_tweet_id);
+          onTranslate();
           return;
         }
         throw new Error(data.error || 'Failed to post tweet');
@@ -142,13 +140,13 @@ export function TweetCard({
         }));
         setTranslationError(null);
         // Refresh to ensure database is updated
-        onTranslateAndPost?.(tweet.source_tweet_id);
+        onTranslate();
       }
     } catch (error) {
       console.error('Error posting tweet:', error);
       setTranslationError(error instanceof Error ? error.message : 'Failed to post tweet');
       // Refresh to get the current status
-      onTranslateAndPost?.(tweet.source_tweet_id);
+      onTranslate();
     } finally {
       setIsPosting(false);
     }
@@ -168,13 +166,8 @@ export function TweetCard({
           <div className="text-gray-600">
             {format(new Date(tweet.created_at), 'MMMM d, yyyy')}
           </div>
-          <div className={`px-4 py-1.5 rounded-full text-sm ${getStatusColor(tweet.status)}`}>
+          <div className={`px-4 py-1.5 rounded-full text-sm font-medium ${getStatusStyle(tweet.status)}`}>
             {getStatusBadge(tweet.status)}
-            {tweet.retry_after && tweet.status === 'queued' && (
-              <span className="ml-1 text-xs">
-                (Retry at {format(new Date(tweet.retry_after), 'HH:mm')})
-              </span>
-            )}
           </div>
         </div>
 
@@ -218,38 +211,26 @@ export function TweetCard({
         )}
 
         {/* Action Buttons */}
-        {tweet.status !== 'posted' && (
-          <div className="flex space-x-4 pt-4">
-            {tweet.status !== 'queued' ? (
-              <>
-                <button
-                  onClick={handleTranslateOrCheck}
-                  disabled={isTranslating}
-                  className="flex items-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span>{getTranslateButtonText()}</span>
-                  <span>→</span>
-                </button>
-                <button
-                  onClick={handlePostManually}
-                  disabled={tweet.status !== 'translated'}
-                  className="flex items-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <span>Post Manually</span>
-                  <span>✕</span>
-                </button>
-              </>
-            ) : onAction && (
-              <button
-                onClick={onAction}
-                className="flex items-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full text-sm font-medium transition-colors"
-              >
-                <span>{actionLabel || 'Remove from Queue'}</span>
-                <span>✕</span>
-              </button>
-            )}
-          </div>
-        )}
+        <div className="flex space-x-4">
+          <button
+            onClick={handleTranslateOrCheck}
+            disabled={isTranslating}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-full text-sm font-medium transition-colors disabled:opacity-50"
+          >
+            <span>{tweet.status === 'pending' ? 'Translate Manually' : 'Check Translation'}</span>
+            <span>→</span>
+          </button>
+          {tweet.status === 'translated' && (
+            <button
+              onClick={handlePostManually}
+              disabled={isPosting}
+              className="flex items-center space-x-2 px-4 py-2 bg-green-50 text-green-600 rounded-full text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              <span>Post Tweet</span>
+              <span>→</span>
+            </button>
+          )}
+        </div>
 
         {/* Error Message */}
         {translationError && (
@@ -263,9 +244,9 @@ export function TweetCard({
       <TranslationModal
         isOpen={isTranslationModalOpen}
         onClose={() => setIsTranslationModalOpen(false)}
-        originalText={tweet.original_text}
-        translatedText={tweet.translated_text || undefined}
-        isLoading={isTranslating}
+        tweet={tweet}
+        onTranslate={onTranslate}
+        error={translationError}
       />
     </>
   );

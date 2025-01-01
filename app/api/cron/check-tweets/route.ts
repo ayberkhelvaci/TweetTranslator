@@ -1,11 +1,25 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabase-admin';
 import { fetchTweetsManually } from '../../../../lib/services/configService';
+import crypto from 'crypto';
 
 interface ProcessResult {
   user_id: string;
   status: 'success' | 'error';
   message: string;
+}
+
+// Function to generate a UUID from a string
+function generateUUID(str: string): string {
+  const hash = crypto.createHash('sha256').update(str).digest();
+  const uuid = [
+    hash.slice(0, 4).toString('hex'),
+    hash.slice(4, 6).toString('hex'),
+    hash.slice(6, 8).toString('hex'),
+    hash.slice(8, 10).toString('hex'),
+    hash.slice(10, 16).toString('hex'),
+  ].join('-');
+  return uuid;
 }
 
 export async function POST(req: Request) {
@@ -30,7 +44,9 @@ export async function POST(req: Request) {
     // Process each configuration
     for (const config of configs) {
       try {
-        const result = await fetchTweetsManually(config.user_id);
+        // Convert the user_id to UUID format before passing to fetchTweetsManually
+        const userUUID = generateUUID(config.user_id);
+        const result = await fetchTweetsManually(userUUID);
         results.push({
           user_id: config.user_id,
           status: 'success',

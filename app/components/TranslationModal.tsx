@@ -1,19 +1,20 @@
 import React from 'react';
+import { Tweet } from '@/types/tweet';
 
 interface TranslationModalProps {
   isOpen: boolean;
   onClose: () => void;
-  originalText: string;
-  translatedText?: string;
-  isLoading?: boolean;
+  tweet: Tweet;
+  onTranslate: () => void;
+  error: string | null;
 }
 
 export function TranslationModal({
   isOpen,
   onClose,
-  originalText,
-  translatedText,
-  isLoading = false,
+  tweet,
+  onTranslate,
+  error
 }: TranslationModalProps) {
   if (!isOpen) return null;
 
@@ -36,30 +37,45 @@ export function TranslationModal({
           {/* Original Text */}
           <div>
             <h4 className="text-sm font-medium text-gray-500 mb-2">Original Tweet</h4>
-            <p className="text-gray-900">{originalText}</p>
+            <p className="text-gray-900">{tweet.original_text}</p>
           </div>
 
           {/* Translation */}
           <div>
             <h4 className="text-sm font-medium text-gray-500 mb-2">Translation</h4>
-            {isLoading ? (
+            {tweet.status === 'translating' ? (
               <div className="flex items-center space-x-2 text-gray-500">
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500"></div>
                 <span>Translating...</span>
               </div>
-            ) : translatedText ? (
-              <p className="text-gray-900">{translatedText}</p>
+            ) : tweet.translated_text ? (
+              <p className="text-gray-900">{tweet.translated_text}</p>
             ) : (
-              <p className="text-gray-500">No translation available</p>
+              <div className="flex items-center justify-between">
+                <p className="text-gray-500">No translation yet</p>
+                <button
+                  onClick={onTranslate}
+                  className="px-4 py-2 bg-blue-100 hover:bg-blue-200 text-blue-700 rounded-full text-sm font-medium transition-colors"
+                >
+                  Translate Now
+                </button>
+              </div>
             )}
           </div>
+
+          {/* Error Message */}
+          {error && (
+            <div className="p-4 bg-red-50 text-red-700 rounded-lg">
+              {error}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end">
+        <div className="px-6 py-4 border-t border-gray-100 flex justify-end">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-800"
+            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-md text-sm font-medium transition-colors"
           >
             Close
           </button>

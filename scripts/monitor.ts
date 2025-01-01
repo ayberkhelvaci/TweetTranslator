@@ -1,7 +1,6 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { TwitterApi } from 'twitter-api-v2';
 import OpenAI from 'openai';
-import { RateLimitError } from '@/lib/errors';
 
 async function translateTweet(text: string, targetLanguage: string): Promise<string> {
   const openai = new OpenAI({

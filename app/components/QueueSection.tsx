@@ -12,10 +12,10 @@ export function QueueSection({ tweets, onRemoveFromQueue }: {
       <div className="space-y-4">
         {tweets.map((tweet) => (
           <TweetCard
-            key={tweet.id}
+            key={tweet.source_tweet_id}
             tweet={tweet}
-            onAction={onRemoveFromQueue ? () => onRemoveFromQueue(tweet.id) : undefined}
-            actionLabel="Remove from Queue"
+            onTranslate={() => {}}
+            onPost={() => onRemoveFromQueue?.(tweet.source_tweet_id)}
           />
         ))}
       </div>

@@ -30,7 +30,7 @@ export default function ApiKeysPage() {
     twitter_api: false,
     twitter_api_secret: false,
     twitter_access_token: false,
-    twitter_access_secret: false
+    twitter_access_secret: false,
   });
 
   useEffect(() => {
@@ -114,7 +114,15 @@ export default function ApiKeysPage() {
 
   return (
     <div className="max-w-4xl mx-auto py-8 px-4">
-      <h1 className="text-3xl font-bold mb-8">Twitter API Keys</h1>
+      <div className="flex justify-between items-center mb-8">
+        <h1 className="text-3xl font-bold">Twitter API Keys</h1>
+        <a 
+          href="/"
+          className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
+        >
+          Back to Home
+        </a>
+      </div>
       
       <div className="bg-white p-6 rounded-lg shadow mb-8">
         <h2 className="text-lg font-semibold mb-4">How to get your Twitter API keys:</h2>
@@ -175,15 +183,27 @@ export default function ApiKeysPage() {
               </div>
             )}
 
-            <button
-              type="submit"
-              disabled={loading}
-              className={`w-full py-2 px-4 rounded bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors ${
-                loading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            >
-              {loading ? 'Saving...' : 'Save API Keys'}
-            </button>
+            <div className="flex space-x-4">
+              <button
+                type="submit"
+                disabled={loading}
+                className={`flex-1 py-2 px-4 rounded bg-blue-500 text-white font-medium hover:bg-blue-600 transition-colors ${
+                  loading ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                {loading ? 'Saving...' : 'Save API Keys'}
+              </button>
+              <button
+                type="button"
+                onClick={fetchKeys}
+                disabled={loading}
+                className={`py-2 px-4 rounded bg-gray-100 text-gray-700 font-medium hover:bg-gray-200 transition-colors ${
+                  loading ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                Check Credentials
+              </button>
+            </div>
           </div>
         </form>
       </div>

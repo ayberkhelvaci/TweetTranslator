@@ -1,6 +1,6 @@
 -- Create rate_limits table
 CREATE TABLE IF NOT EXISTS rate_limits (
-    user_id UUID PRIMARY KEY,
+    user_id TEXT PRIMARY KEY,
     reset BIGINT NOT NULL,
     remaining INTEGER NOT NULL,
     endpoint TEXT NOT NULL,

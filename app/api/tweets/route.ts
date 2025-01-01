@@ -2,8 +2,22 @@ import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../auth/options';
 import { supabaseAdmin } from '../../../lib/supabase-admin';
+import crypto from 'crypto';
 
 export const dynamic = 'force-dynamic';
+
+// Function to generate a UUID from a string
+function generateUUID(str: string): string {
+  const hash = crypto.createHash('sha256').update(str).digest();
+  const uuid = [
+    hash.slice(0, 4).toString('hex'),
+    hash.slice(4, 6).toString('hex'),
+    hash.slice(6, 8).toString('hex'),
+    hash.slice(8, 10).toString('hex'),
+    hash.slice(10, 16).toString('hex'),
+  ].join('-');
+  return uuid;
+}
 
 export async function GET() {
   try {
@@ -16,11 +30,13 @@ export async function GET() {
       );
     }
 
+    const userUUID = generateUUID(session.user.id);
+
     // Get tweets with proper ordering
     const { data: tweets, error } = await supabaseAdmin
       .from('tweets')
       .select('*')
-      .eq('user_id', session.user.id)
+      .eq('user_id', userUUID)
       .order('created_at', { ascending: false });
 
     if (error) {

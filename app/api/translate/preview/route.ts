@@ -1,23 +1,59 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import OpenAI from 'openai';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '../../auth/options';
+import crypto from 'crypto';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Function to generate a UUID from a string
+function generateUUID(str: string): string {
+  const hash = crypto.createHash('sha256').update(str).digest();
+  const uuid = [
+    hash.slice(0, 4).toString('hex'),
+    hash.slice(4, 6).toString('hex'),
+    hash.slice(6, 8).toString('hex'),
+    hash.slice(8, 10).toString('hex'),
+    hash.slice(10, 16).toString('hex'),
+  ].join('-');
+  return uuid;
+}
+
 export async function POST(request: Request) {
   try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { tweetId } = await request.json();
+    const userUUID = generateUUID(session.user.id);
+
+    console.log('Debug - Query params:', {
+      userUUID,
+      tweetId,
+      originalUserId: session.user.id
+    });
 
     // Get the tweet from the database
     const { data: tweet, error: tweetError } = await supabaseAdmin
       .from('tweets')
       .select('*')
+      .eq('user_id', userUUID)
       .eq('source_tweet_id', tweetId)
       .single();
 
     if (tweetError) {
+      console.error('Tweet error:', tweetError);
+      // Let's also log what's in the database for this user
+      const { data: userTweets } = await supabaseAdmin
+        .from('tweets')
+        .select('source_tweet_id, user_id')
+        .eq('user_id', userUUID);
+      console.log('Debug - Available tweets for user:', userTweets);
       throw new Error('Tweet not found');
     }
 
@@ -54,6 +90,7 @@ export async function POST(request: Request) {
         translated_text: translation,
         status: 'translated'
       })
+      .eq('user_id', userUUID)
       .eq('source_tweet_id', tweetId);
 
     if (updateError) {
