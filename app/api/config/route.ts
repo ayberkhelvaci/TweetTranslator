@@ -116,4 +116,33 @@ export async function POST(request: Request) {
       { status: 500 }
     );
   }
+}
+
+export async function PATCH(req: Request) {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const userUUID = generateUUID(session.user.id);
+    const { auto_mode } = await req.json();
+
+    const { error } = await supabaseAdmin
+      .from('config')
+      .update({ auto_mode })
+      .eq('user_id', userUUID);
+
+    if (error) {
+      throw error;
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error updating config:', error);
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : 'Failed to update config' },
+      { status: 500 }
+    );
+  }
 } 

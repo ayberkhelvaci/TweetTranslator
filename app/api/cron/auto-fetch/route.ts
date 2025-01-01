@@ -13,6 +13,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    console.log('Fetching configurations...');
     // Get all active configurations with auto_mode enabled
     const { data: configs, error: configError } = await supabaseAdmin
       .from('config')
@@ -20,7 +21,10 @@ export async function POST(req: Request) {
       .not('registration_timestamp', 'is', null)
       .eq('auto_mode', true);
 
+    console.log('Configs:', JSON.stringify(configs), 'Error:', configError);
+
     if (configError) {
+      console.error('Config error details:', configError);
       throw new Error('Failed to fetch configurations');
     }
 
