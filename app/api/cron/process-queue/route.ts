@@ -55,14 +55,12 @@ export async function POST(req: Request) {
           continue;
         }
 
-        // Get Twitter API keys using the same logic as manual posting
-        const originalUserId = tweet.user_id.split('-')[0]; // Get the first part of the UUID
-        const userUUID = generateUUID(originalUserId);
-        console.log('Fetching Twitter keys for user_id:', userUUID);
+        // Get Twitter API keys
+        console.log('Fetching Twitter keys for user_id:', tweet.user_id);
         const { data: keys, error: keysError } = await supabaseAdmin
           .from('twitter_keys')
           .select('*')
-          .eq('user_id', userUUID)
+          .eq('user_id', tweet.user_id)
           .single();
 
         if (keysError || !keys) {
