@@ -47,6 +47,12 @@ export async function POST(req: Request) {
           continue;
         }
 
+        // Add delay between requests to avoid rate limits
+        if (results.length > 0) {
+          console.log('Waiting 2 seconds before next request...');
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+
         // Initialize Twitter client
         const client = new TwitterApi({
           appKey: config.twitter_keys.api_key,
@@ -56,62 +62,81 @@ export async function POST(req: Request) {
         });
 
         console.log(`Fetching tweets since: ${config.registration_timestamp}`);
-        // Get tweets since registration
-        const tweets = await client.v2.userTimeline(config.source_account, {
-          'tweet.fields': ['created_at', 'attachments'],
-          'user.fields': ['profile_image_url', 'name', 'username'],
-          'media.fields': ['url', 'preview_image_url', 'type'],
-          expansions: ['attachments.media_keys', 'author_id'],
-          start_time: config.registration_timestamp,
-        });
-
-        // Process tweets
-        if (tweets.data?.data && tweets.data.data.length > 0) {
-          // Filter out tweets without created_at
-          const validTweets = tweets.data.data.filter((tweet: TweetV2) => tweet.created_at);
-
-          if (validTweets.length === 0) {
-            console.warn('No tweets with valid created_at timestamp found');
-            continue;
-          }
-
-          // Insert new tweets
-          const { error: insertError } = await supabaseAdmin.from('tweets').insert(
-            validTweets.map((tweet: TweetV2) => ({
-              tweet_id: tweet.id,
-              user_id: config.user_id,
-              source_tweet_id: tweet.id,
-              source_text: tweet.text,
-              created_at: tweet.created_at,
-            }))
-          );
-
-          if (insertError) {
-            console.error('Error inserting tweets:', insertError);
-            continue;
-          }
-
-          // Update registration_timestamp to the latest tweet's timestamp
-          const latestTweet = validTweets.reduce((latest: TweetV2, current: TweetV2) => {
-            return new Date(current.created_at!) > new Date(latest.created_at!) ? current : latest;
+        try {
+          // Get tweets since registration
+          const tweets = await client.v2.userTimeline(config.source_account, {
+            'tweet.fields': ['created_at', 'attachments'],
+            'user.fields': ['profile_image_url', 'name', 'username'],
+            'media.fields': ['url', 'preview_image_url', 'type'],
+            expansions: ['attachments.media_keys', 'author_id'],
+            start_time: config.registration_timestamp,
           });
 
-          const { error: updateError } = await supabaseAdmin
-            .from('config')
-            .update({
-              registration_timestamp: latestTweet.created_at,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('user_id', config.user_id);
+          // Process tweets
+          if (tweets.data?.data && tweets.data.data.length > 0) {
+            // Filter out tweets without created_at
+            const validTweets = tweets.data.data.filter((tweet: TweetV2) => tweet.created_at);
 
-          if (updateError) {
-            console.error('Error updating registration_timestamp:', updateError);
+            if (validTweets.length === 0) {
+              console.warn('No tweets with valid created_at timestamp found');
+              continue;
+            }
+
+            // Insert new tweets
+            const { error: insertError } = await supabaseAdmin.from('tweets').insert(
+              validTweets.map((tweet: TweetV2) => ({
+                tweet_id: tweet.id,
+                user_id: config.user_id,
+                source_tweet_id: tweet.id,
+                source_text: tweet.text,
+                created_at: tweet.created_at,
+              }))
+            );
+
+            if (insertError) {
+              console.error('Error inserting tweets:', insertError);
+              continue;
+            }
+
+            // Update registration_timestamp to the latest tweet's timestamp
+            const latestTweet = validTweets.reduce((latest: TweetV2, current: TweetV2) => {
+              return new Date(current.created_at!) > new Date(latest.created_at!) ? current : latest;
+            });
+
+            const { error: updateError } = await supabaseAdmin
+              .from('config')
+              .update({
+                registration_timestamp: latestTweet.created_at,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('user_id', config.user_id);
+
+            if (updateError) {
+              console.error('Error updating registration_timestamp:', updateError);
+            }
+
+            results.push({
+              source_account: config.source_account,
+              tweets_fetched: validTweets.length,
+            });
+          } else {
+            console.log(`No new tweets found for ${config.source_account}`);
+            results.push({
+              source_account: config.source_account,
+              tweets_fetched: 0,
+            });
           }
-
-          results.push({
-            source_account: config.source_account,
-            tweets_fetched: validTweets.length,
-          });
+        } catch (twitterError: any) {
+          if (twitterError?.code === 429) {
+            console.log(`Rate limit hit for ${config.source_account}, will retry in next cron run`);
+            results.push({
+              account: config.source_account,
+              status: 'rate_limited',
+              message: 'Rate limit exceeded, will retry later'
+            });
+          } else {
+            throw twitterError;
+          }
         }
       } catch (error) {
         console.error('Error processing account:', config.source_account, error);
