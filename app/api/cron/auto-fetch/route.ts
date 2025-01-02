@@ -119,11 +119,15 @@ export async function POST(req: Request) {
             // Insert new tweets
             const { error: insertError } = await supabaseAdmin.from('tweets').insert(
               newTweets.map((tweet: TweetV2) => ({
-                tweet_id: tweet.id,
                 user_id: config.user_id,
                 source_tweet_id: tweet.id,
                 original_text: tweet.text,
+                translated_text: null,
+                author_username: username,
+                author_profile_image: '',
+                status: 'pending',
                 created_at: tweet.created_at,
+                updated_at: new Date().toISOString()
               }))
             );
 
