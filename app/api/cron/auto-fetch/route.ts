@@ -125,7 +125,7 @@ export async function POST(req: Request) {
                 translated_text: null,
                 author_username: username,
                 author_profile_image: '',
-                status: 'pending',
+                status: 'pending_auto',
                 created_at: tweet.created_at,
                 updated_at: new Date().toISOString()
               }))
