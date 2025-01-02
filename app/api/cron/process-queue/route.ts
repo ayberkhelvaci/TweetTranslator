@@ -1,6 +1,20 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { TwitterApi } from 'twitter-api-v2';
+import crypto from 'crypto';
+
+// Function to generate a UUID from a string
+function generateUUID(str: string): string {
+  const hash = crypto.createHash('sha256').update(str).digest();
+  const uuid = [
+    hash.slice(0, 4).toString('hex'),
+    hash.slice(4, 6).toString('hex'),
+    hash.slice(6, 8).toString('hex'),
+    hash.slice(8, 10).toString('hex'),
+    hash.slice(10, 16).toString('hex'),
+  ].join('-');
+  return uuid;
+}
 
 export async function POST(req: Request) {
   try {
@@ -16,7 +30,7 @@ export async function POST(req: Request) {
     // Get all queued tweets ordered by created_at
     const { data: tweets, error: tweetsError } = await supabaseAdmin
       .from('tweets')
-      .select('*, config:user_id(target_language), twitter_keys:user_id(*)')
+      .select('*, config:user_id(target_language)')
       .eq('status', 'queued')
       .order('created_at', { ascending: true })
       .limit(10); // Process max 10 tweets per batch
@@ -41,12 +55,24 @@ export async function POST(req: Request) {
           continue;
         }
 
+        // Get Twitter API keys using the correct UUID
+        const userUUID = generateUUID(tweet.user_id);
+        const { data: keys, error: keysError } = await supabaseAdmin
+          .from('twitter_keys')
+          .select('*')
+          .eq('user_id', userUUID)
+          .single();
+
+        if (keysError || !keys) {
+          throw new Error('Twitter API keys not found');
+        }
+
         // Initialize Twitter client
         const client = new TwitterApi({
-          appKey: tweet.twitter_keys.api_key,
-          appSecret: tweet.twitter_keys.api_secret,
-          accessToken: tweet.twitter_keys.access_token,
-          accessSecret: tweet.twitter_keys.access_token_secret,
+          appKey: keys.api_key,
+          appSecret: keys.api_secret,
+          accessToken: keys.access_token,
+          accessSecret: keys.access_token_secret,
         });
 
         // Post tweet
