@@ -52,6 +52,12 @@ interface TwitterResponse {
   };
 }
 
+interface TwitterTweet {
+  id: string;
+  text: string;
+  created_at?: string;
+}
+
 async function checkAndUpdateRateLimit(userId: string): Promise<RateLimitInfo | null> {
   try {
     const { data: rateLimit } = await supabaseAdmin
@@ -327,8 +333,28 @@ async function fetchTweetsInBackground(userId: string, username: string) {
         };
       }
 
+      // Check for existing tweets
+      const tweetIds = tweets.map((tweet: TwitterTweet) => tweet.id);
+      const { data: existingTweetIds } = await supabaseAdmin
+        .from('tweets')
+        .select('source_tweet_id')
+        .eq('user_id', userId)
+        .in('source_tweet_id', tweetIds);
+
+      const existingIds = new Set(existingTweetIds?.map(t => t.source_tweet_id) || []);
+      const newTweets = tweets.filter((tweet: TwitterTweet) => !existingIds.has(tweet.id));
+
+      console.log(`Found ${newTweets.length} new tweets after filtering duplicates`);
+
+      if (newTweets.length === 0) {
+        return {
+          success: true,
+          message: 'All tweets already exist in the database'
+        };
+      }
+
       // Transform tweets to match our schema
-      const transformedTweets = tweets.map((tweet: { id: string; text: string; created_at?: string }) => ({
+      const transformedTweets = newTweets.map((tweet: TwitterTweet) => ({
         user_id: userId,
         source_tweet_id: tweet.id,
         original_text: tweet.text,
