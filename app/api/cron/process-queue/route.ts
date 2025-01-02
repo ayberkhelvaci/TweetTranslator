@@ -55,12 +55,14 @@ export async function POST(req: Request) {
           continue;
         }
 
-        // Get Twitter API keys (user_id is already a UUID)
-        console.log('Fetching Twitter keys for user_id:', tweet.user_id);
+        // Get Twitter API keys using the same logic as manual posting
+        const originalUserId = tweet.user_id.split('-')[0]; // Get the first part of the UUID
+        const userUUID = generateUUID(originalUserId);
+        console.log('Fetching Twitter keys for user_id:', userUUID);
         const { data: keys, error: keysError } = await supabaseAdmin
           .from('twitter_keys')
           .select('*')
-          .eq('user_id', tweet.user_id)
+          .eq('user_id', userUUID)
           .single();
 
         if (keysError || !keys) {
@@ -84,7 +86,15 @@ export async function POST(req: Request) {
 
         // Post tweet
         try {
+          console.log('Attempting to post tweet:', {
+            user_id: tweet.user_id,
+            tweet_id: tweet.source_tweet_id,
+            text_length: tweet.translated_text?.length
+          });
+
           const postedTweet = await client.v2.tweet(tweet.translated_text);
+
+          console.log('Successfully posted tweet:', postedTweet.data.id);
 
           // Update tweet status
           const { error: updateError } = await supabaseAdmin
@@ -110,20 +120,35 @@ export async function POST(req: Request) {
             message: 'Tweet posted successfully'
           });
         } catch (twitterError: any) {
+          // Log the complete error object
+          console.error('Full Twitter API error:', JSON.stringify(twitterError, null, 2));
           console.error('Twitter API error details:', {
             error: twitterError,
             code: twitterError.code,
             data: twitterError.data,
             message: twitterError.message,
-            errors: twitterError.errors
+            errors: twitterError.errors,
+            stack: twitterError.stack,
+            type: twitterError.type,
+            title: twitterError.title,
+            detail: twitterError.detail
           });
+
+          let errorMessage = 'Failed to post tweet';
+          if (twitterError.errors?.length > 0) {
+            errorMessage = `${twitterError.errors[0].title || ''}: ${twitterError.errors[0].detail || twitterError.errors[0].message || ''}`.trim();
+          } else if (twitterError.error?.description) {
+            errorMessage = twitterError.error.description;
+          } else if (twitterError.message) {
+            errorMessage = twitterError.message;
+          }
 
           // Update tweet status to failed with detailed error
           await supabaseAdmin
             .from('tweets')
             .update({
               status: 'failed',
-              error_message: twitterError.errors?.[0]?.message || twitterError.message || 'Failed to post tweet',
+              error_message: errorMessage,
               updated_at: new Date().toISOString()
             })
             .eq('id', tweet.id);
@@ -131,7 +156,7 @@ export async function POST(req: Request) {
           results.push({
             tweet_id: tweet.source_tweet_id,
             status: 'error',
-            message: twitterError.errors?.[0]?.message || twitterError.message || 'Failed to post tweet'
+            message: errorMessage
           });
         }
       } catch (error) {
