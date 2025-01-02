@@ -66,8 +66,16 @@ export async function POST(req: Request) {
 
         console.log(`[Auto-Fetch Job ${jobId}] Fetching tweets for ${config.source_account} since: ${config.registration_timestamp}`);
         try {
+          // Get user ID first
+          const username = config.source_account.replace('@', '');
+          const user = await client.v2.userByUsername(username);
+          
+          if (!user.data) {
+            throw new Error(`User ${config.source_account} not found`);
+          }
+
           // Get tweets since registration
-          const tweets = await client.v2.userTimeline(config.source_account, {
+          const tweets = await client.v2.userTimeline(user.data.id, {
             'tweet.fields': ['created_at', 'attachments'],
             'user.fields': ['profile_image_url', 'name', 'username'],
             'media.fields': ['url', 'preview_image_url', 'type'],
