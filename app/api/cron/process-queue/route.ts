@@ -75,30 +75,57 @@ export async function POST(req: Request) {
         });
 
         // Post tweet
-        const postedTweet = await client.v2.tweet(tweet.translated_text);
+        try {
+          const postedTweet = await client.v2.tweet(tweet.translated_text);
 
-        // Update tweet status
-        const { error: updateError } = await supabaseAdmin
-          .from('tweets')
-          .update({
-            status: 'posted',
-            posted_tweet_id: postedTweet.data.id,
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', tweet.id);
+          // Update tweet status
+          const { error: updateError } = await supabaseAdmin
+            .from('tweets')
+            .update({
+              status: 'posted',
+              posted_tweet_id: postedTweet.data.id,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', tweet.id);
 
-        if (updateError) {
-          throw new Error('Failed to update tweet status');
+          if (updateError) {
+            console.error('Update error:', updateError);
+            throw new Error('Failed to update tweet status');
+          }
+
+          // Mark this user as processed in this batch
+          processedUserIds.add(tweet.user_id);
+
+          results.push({
+            tweet_id: tweet.source_tweet_id,
+            status: 'success',
+            message: 'Tweet posted successfully'
+          });
+        } catch (twitterError: any) {
+          console.error('Twitter API error details:', {
+            error: twitterError,
+            code: twitterError.code,
+            data: twitterError.data,
+            message: twitterError.message,
+            errors: twitterError.errors
+          });
+
+          // Update tweet status to failed with detailed error
+          await supabaseAdmin
+            .from('tweets')
+            .update({
+              status: 'failed',
+              error_message: twitterError.errors?.[0]?.message || twitterError.message || 'Failed to post tweet',
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', tweet.id);
+
+          results.push({
+            tweet_id: tweet.source_tweet_id,
+            status: 'error',
+            message: twitterError.errors?.[0]?.message || twitterError.message || 'Failed to post tweet'
+          });
         }
-
-        // Mark this user as processed in this batch
-        processedUserIds.add(tweet.user_id);
-
-        results.push({
-          tweet_id: tweet.source_tweet_id,
-          status: 'success',
-          message: 'Tweet posted successfully'
-        });
       } catch (error) {
         console.error('Error posting tweet:', tweet.source_tweet_id, error);
         
