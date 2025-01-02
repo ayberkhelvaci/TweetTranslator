@@ -96,9 +96,27 @@ export async function POST(req: Request) {
               continue;
             }
 
+            // Check for existing tweets
+            const tweetIds = validTweets.map(tweet => tweet.id);
+            const { data: existingTweets } = await supabaseAdmin
+              .from('tweets')
+              .select('tweet_id')
+              .eq('user_id', config.user_id)
+              .in('tweet_id', tweetIds);
+
+            const existingTweetIds = new Set(existingTweets?.map(t => t.tweet_id) || []);
+            const newTweets = validTweets.filter(tweet => !existingTweetIds.has(tweet.id));
+
+            console.log(`[Auto-Fetch Job ${jobId}] Found ${newTweets.length} new tweets after filtering duplicates`);
+
+            if (newTweets.length === 0) {
+              console.log(`[Auto-Fetch Job ${jobId}] All tweets already exist for ${config.source_account}`);
+              continue;
+            }
+
             // Insert new tweets
             const { error: insertError } = await supabaseAdmin.from('tweets').insert(
-              validTweets.map((tweet: TweetV2) => ({
+              newTweets.map((tweet: TweetV2) => ({
                 tweet_id: tweet.id,
                 user_id: config.user_id,
                 source_tweet_id: tweet.id,
