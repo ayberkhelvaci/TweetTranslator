@@ -3,17 +3,20 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { TwitterApi, TweetV2 } from 'twitter-api-v2';
 
 export async function POST(req: Request) {
+  const jobId = new Date().toISOString();
+  console.log(`[Auto-Fetch Job ${jobId}] Starting...`);
+  
   try {
     // Verify the secret token
     const authHeader = req.headers.get('authorization');
     const token = authHeader?.replace('Bearer ', '').trim();
     
     if (!token || token !== process.env.CRON_SECRET) {
-      console.log('Auth failed. Received token:', token?.slice(0, 10));
+      console.log(`[Auto-Fetch Job ${jobId}] Auth failed. Received token:`, token?.slice(0, 10));
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    console.log('Fetching configurations...');
+    console.log(`[Auto-Fetch Job ${jobId}] Fetching configurations...`);
     // Get all active configurations with auto_mode enabled
     const { data: configs, error: configError } = await supabaseAdmin
       .from('config')
@@ -21,9 +24,9 @@ export async function POST(req: Request) {
       .not('registration_timestamp', 'is', null)
       .eq('auto_mode', true);
 
-    console.log('Found configs:', configs?.length ?? 0);
+    console.log(`[Auto-Fetch Job ${jobId}] Found ${configs?.length ?? 0} active configurations`);
     if (configs && configs.length > 0) {
-      console.log('Config details:', configs.map(c => ({
+      console.log(`[Auto-Fetch Job ${jobId}] Config details:`, configs.map(c => ({
         source_account: c.source_account,
         has_keys: !!c.twitter_keys,
         registration_time: c.registration_timestamp
@@ -31,7 +34,7 @@ export async function POST(req: Request) {
     }
 
     if (configError) {
-      console.error('Config error details:', configError);
+      console.error(`[Auto-Fetch Job ${jobId}] Config error:`, configError);
       throw new Error('Failed to fetch configurations');
     }
 
@@ -40,16 +43,16 @@ export async function POST(req: Request) {
     // Process each configuration
     for (const config of configs || []) {
       try {
-        console.log(`Processing account: ${config.source_account}`);
+        console.log(`[Auto-Fetch Job ${jobId}] Processing account: ${config.source_account}`);
         
         if (!config.twitter_keys) {
-          console.log(`No Twitter keys found for ${config.source_account}`);
+          console.log(`[Auto-Fetch Job ${jobId}] No Twitter keys found for ${config.source_account}`);
           continue;
         }
 
         // Add delay between requests to avoid rate limits
         if (results.length > 0) {
-          console.log('Waiting 2 seconds before next request...');
+          console.log(`[Auto-Fetch Job ${jobId}] Waiting 2 seconds before next request...`);
           await new Promise(resolve => setTimeout(resolve, 2000));
         }
 
@@ -61,7 +64,7 @@ export async function POST(req: Request) {
           accessSecret: config.twitter_keys.access_token_secret,
         });
 
-        console.log(`Fetching tweets since: ${config.registration_timestamp}`);
+        console.log(`[Auto-Fetch Job ${jobId}] Fetching tweets for ${config.source_account} since: ${config.registration_timestamp}`);
         try {
           // Get tweets since registration
           const tweets = await client.v2.userTimeline(config.source_account, {
@@ -74,11 +77,14 @@ export async function POST(req: Request) {
 
           // Process tweets
           if (tweets.data?.data && tweets.data.data.length > 0) {
+            console.log(`[Auto-Fetch Job ${jobId}] Found ${tweets.data.data.length} new tweets for ${config.source_account}`);
+            
             // Filter out tweets without created_at
             const validTweets = tweets.data.data.filter((tweet: TweetV2) => tweet.created_at);
+            console.log(`[Auto-Fetch Job ${jobId}] ${validTweets.length} tweets have valid timestamps`);
 
             if (validTweets.length === 0) {
-              console.warn('No tweets with valid created_at timestamp found');
+              console.warn(`[Auto-Fetch Job ${jobId}] No tweets with valid created_at timestamp found`);
               continue;
             }
 
@@ -94,7 +100,7 @@ export async function POST(req: Request) {
             );
 
             if (insertError) {
-              console.error('Error inserting tweets:', insertError);
+              console.error(`[Auto-Fetch Job ${jobId}] Error inserting tweets:`, insertError);
               continue;
             }
 
@@ -103,6 +109,7 @@ export async function POST(req: Request) {
               return new Date(current.created_at!) > new Date(latest.created_at!) ? current : latest;
             });
 
+            console.log(`[Auto-Fetch Job ${jobId}] Updating registration_timestamp to: ${latestTweet.created_at}`);
             const { error: updateError } = await supabaseAdmin
               .from('config')
               .update({
@@ -112,7 +119,7 @@ export async function POST(req: Request) {
               .eq('user_id', config.user_id);
 
             if (updateError) {
-              console.error('Error updating registration_timestamp:', updateError);
+              console.error(`[Auto-Fetch Job ${jobId}] Error updating registration_timestamp:`, updateError);
             }
 
             results.push({
@@ -120,7 +127,7 @@ export async function POST(req: Request) {
               tweets_fetched: validTweets.length,
             });
           } else {
-            console.log(`No new tweets found for ${config.source_account}`);
+            console.log(`[Auto-Fetch Job ${jobId}] No new tweets found for ${config.source_account}`);
             results.push({
               source_account: config.source_account,
               tweets_fetched: 0,
@@ -128,7 +135,7 @@ export async function POST(req: Request) {
           }
         } catch (twitterError: any) {
           if (twitterError?.code === 429) {
-            console.log(`Rate limit hit for ${config.source_account}, will retry in next cron run`);
+            console.log(`[Auto-Fetch Job ${jobId}] Rate limit hit for ${config.source_account}, will retry in next cron run`);
             results.push({
               account: config.source_account,
               status: 'rate_limited',
@@ -139,7 +146,7 @@ export async function POST(req: Request) {
           }
         }
       } catch (error) {
-        console.error('Error processing account:', config.source_account, error);
+        console.error(`[Auto-Fetch Job ${jobId}] Error processing account:`, config.source_account, error);
         results.push({
           account: config.source_account,
           status: 'error',
@@ -148,12 +155,13 @@ export async function POST(req: Request) {
       }
     }
 
+    console.log(`[Auto-Fetch Job ${jobId}] Completed with results:`, results);
     return NextResponse.json({
       success: true,
       results
     });
   } catch (error) {
-    console.error('Auto fetch error:', error);
+    console.error(`[Auto-Fetch Job ${jobId}] Auto fetch error:`, error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }
