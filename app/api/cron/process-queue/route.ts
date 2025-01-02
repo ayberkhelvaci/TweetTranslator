@@ -55,12 +55,11 @@ export async function POST(req: Request) {
           continue;
         }
 
-        // Get Twitter API keys using the correct UUID
-        const userUUID = generateUUID(tweet.user_id);
+        // Get Twitter API keys (user_id is already a UUID)
         const { data: keys, error: keysError } = await supabaseAdmin
           .from('twitter_keys')
           .select('*')
-          .eq('user_id', userUUID)
+          .eq('user_id', tweet.user_id)
           .single();
 
         if (keysError || !keys) {
