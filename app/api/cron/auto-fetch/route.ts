@@ -122,7 +122,7 @@ export async function POST(req: Request) {
                 tweet_id: tweet.id,
                 user_id: config.user_id,
                 source_tweet_id: tweet.id,
-                source_text: tweet.text,
+                original_text: tweet.text,
                 created_at: tweet.created_at,
               }))
             );
