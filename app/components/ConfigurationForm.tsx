@@ -9,6 +9,7 @@ interface ConfigData {
   target_language: string;
   check_interval: number;
   registration_timestamp?: string;
+  auto_mode: boolean;
 }
 
 export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
@@ -20,6 +21,7 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [monitoringStarted, setMonitoringStarted] = useState<string | null>(null);
+  const [autoMode, setAutoMode] = useState(false);
 
   // Load existing configuration
   useEffect(() => {
@@ -35,6 +37,7 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
         setTargetLanguage(data.target_language || 'en');
         setCheckInterval(data.check_interval || 30);
         setMonitoringStarted(data.registration_timestamp || null);
+        setAutoMode(data.auto_mode || false);
       } catch (error) {
         console.error('Error loading configuration:', error);
         setError(error instanceof Error ? error.message : 'Failed to load configuration');
@@ -64,17 +67,19 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
     try {
       const response = await fetch('/api/config', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
-          source_account: sourceAccount.replace(/^@/, ''), // Remove @ if present
-          target_language: targetLanguage,
+          source_account: sourceAccount,
           check_interval: checkInterval,
+          target_language: targetLanguage,
+          auto_mode: autoMode,
         }),
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to save configuration');
+        throw new Error('Failed to save configuration');
       }
 
       await onSubmit();
@@ -285,6 +290,22 @@ export function ConfigurationForm({ onSubmit }: ConfigurationFormProps) {
               <option value="pt">Portuguese</option>
               <option value="tr">Turkish</option>
             </select>
+          </div>
+
+          <div className="flex items-center space-x-3">
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={autoMode}
+                onChange={(e) => setAutoMode(e.target.checked)}
+              />
+              <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+              <span className="ml-3 text-sm font-medium text-gray-300">Enable Auto Mode</span>
+            </label>
+            <div className="text-gray-400 text-sm">
+              (Automatically fetch and translate new tweets)
+            </div>
           </div>
 
           {error && (

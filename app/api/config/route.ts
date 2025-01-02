@@ -60,7 +60,7 @@ export async function POST(request: Request) {
     const userUUID = generateUUID(session.user.id);
 
     const body = await request.json();
-    const { source_account, check_interval, target_language } = body;
+    const { source_account, check_interval, target_language, auto_mode } = body;
 
     if (!source_account || !check_interval || !target_language) {
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -82,7 +82,9 @@ export async function POST(request: Request) {
       source_account: formattedSourceAccount,
       check_interval,
       target_language,
+      auto_mode: auto_mode || false,
       updated_at: new Date().toISOString(),
+      registration_timestamp: existingConfig ? undefined : new Date().toISOString(),
     };
 
     // If no existing config, insert new. If exists, update.
