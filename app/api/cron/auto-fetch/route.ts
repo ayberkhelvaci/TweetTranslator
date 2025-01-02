@@ -80,7 +80,9 @@ export async function POST(req: Request) {
             'user.fields': ['profile_image_url', 'name', 'username'],
             'media.fields': ['url', 'preview_image_url', 'type'],
             expansions: ['attachments.media_keys', 'author_id'],
-            start_time: config.registration_timestamp,
+            max_results: 10,
+            exclude: ['retweets', 'replies'],
+            ...(config.last_tweet_id ? { since_id: config.last_tweet_id } : {})
           });
 
           // Process tweets
@@ -135,17 +137,17 @@ export async function POST(req: Request) {
               return new Date(current.created_at!) > new Date(latest.created_at!) ? current : latest;
             });
 
-            console.log(`[Auto-Fetch Job ${jobId}] Updating registration_timestamp to: ${latestTweet.created_at}`);
+            console.log(`[Auto-Fetch Job ${jobId}] Updating last_tweet_id to: ${latestTweet.id}`);
             const { error: updateError } = await supabaseAdmin
               .from('config')
               .update({
-                registration_timestamp: latestTweet.created_at,
+                last_tweet_id: latestTweet.id,
                 updated_at: new Date().toISOString(),
               })
               .eq('user_id', config.user_id);
 
             if (updateError) {
-              console.error(`[Auto-Fetch Job ${jobId}] Error updating registration_timestamp:`, updateError);
+              console.error(`[Auto-Fetch Job ${jobId}] Error updating last_tweet_id:`, updateError);
             }
 
             results.push({
