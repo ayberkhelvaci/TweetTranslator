@@ -56,6 +56,7 @@ export async function POST(req: Request) {
         }
 
         // Get Twitter API keys (user_id is already a UUID)
+        console.log('Fetching Twitter keys for user_id:', tweet.user_id);
         const { data: keys, error: keysError } = await supabaseAdmin
           .from('twitter_keys')
           .select('*')
@@ -63,8 +64,15 @@ export async function POST(req: Request) {
           .single();
 
         if (keysError || !keys) {
+          console.error('Twitter keys fetch error:', keysError);
           throw new Error('Twitter API keys not found');
         }
+        console.log('Found Twitter keys:', {
+          hasApiKey: !!keys.api_key,
+          hasApiSecret: !!keys.api_secret,
+          hasAccessToken: !!keys.access_token,
+          hasAccessSecret: !!keys.access_token_secret
+        });
 
         // Initialize Twitter client
         const client = new TwitterApi({
