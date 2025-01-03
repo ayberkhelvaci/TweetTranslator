@@ -3,14 +3,6 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { TwitterApi, TweetV2 } from 'twitter-api-v2';
 import { processTweet, createMediaMap } from '@/lib/services/tweetProcessor';
 
-export async function POST(req: Request) {
-  const jobId = Math.random().toString(36).substring(7);
-  console.log(`[Auto-Fetch Job ${jobId}] Starting auto-fetch job`);
-
-  try {
-    // Verify the secret token
-    const authHeader = req.headers.get('authorization');
-    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
 interface TweetMedia {
   type: string;
   url: string;

@@ -35,7 +35,7 @@ export function createMediaMap(media: MediaObjectV2[]): Map<string, TweetMedia> 
   
   media.forEach(media => {
     mediaMap.set(media.media_key, {
-      type: media.type,
+      type: media.type as 'photo' | 'video' | 'animated_gif',
       url: media.url || media.preview_image_url || '',
       preview_url: media.preview_image_url,
       alt_text: media.alt_text
