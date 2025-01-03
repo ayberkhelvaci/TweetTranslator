@@ -1,6 +1,27 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { TwitterApi, TweetV2 } from 'twitter-api-v2';
+import { processTweet, createMediaMap } from '@/lib/services/tweetProcessor';
+
+export async function POST(req: Request) {
+  const jobId = Math.random().toString(36).substring(7);
+  console.log(`[Auto-Fetch Job ${jobId}] Starting auto-fetch job`);
+
+  try {
+    // Verify the secret token
+    const authHeader = req.headers.get('authorization');
+    if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+interface TweetMedia {
+  type: string;
+  url: string;
+  preview_url?: string;
+  alt_text?: string;
+}
+
+interface TweetStructureElement {
+  type: 'text' | 'media';
+  content: string;
+}
 
 export async function POST(req: Request) {
   const jobId = new Date().toISOString();
@@ -76,10 +97,10 @@ export async function POST(req: Request) {
 
           // Get tweets since registration
           const tweets = await client.v2.userTimeline(user.data.id, {
-            'tweet.fields': ['created_at', 'attachments'],
+            'tweet.fields': ['created_at', 'attachments', 'conversation_id', 'in_reply_to_user_id', 'referenced_tweets'],
             'user.fields': ['profile_image_url', 'name', 'username'],
-            'media.fields': ['url', 'preview_image_url', 'type'],
-            expansions: ['attachments.media_keys', 'author_id'],
+            'media.fields': ['url', 'preview_image_url', 'type', 'alt_text'],
+            expansions: ['attachments.media_keys', 'author_id', 'referenced_tweets.id'],
             max_results: 10,
             exclude: ['retweets', 'replies'],
             ...(config.last_tweet_id ? { since_id: config.last_tweet_id } : {})

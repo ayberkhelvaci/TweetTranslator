@@ -15,7 +15,7 @@ export interface Tweet {
   content: string;
   original_text: string;
   translated_text?: string | null;
-  status: 'pending' | 'translating' | 'translated' | 'posted' | 'failed' | 'queued';
+  status: 'pending' | 'translating' | 'translated' | 'posted' | 'failed' | 'queued' | 'pending_auto';
   posted_at: string;
   updated_at: string;
   created_at: string;
