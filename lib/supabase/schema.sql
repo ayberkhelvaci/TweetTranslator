@@ -30,6 +30,10 @@ CREATE TABLE tweets (
     status TEXT NOT NULL DEFAULT 'pending',
     error_message TEXT,
     posted_tweet_id TEXT,
+    tweet_structure JSONB,        -- Sequence of text and media in the tweet
+    media_attachments JSONB,      -- Details of media attachments
+    thread_id TEXT,               -- ID of the thread this tweet belongs to
+    thread_position INTEGER,      -- Position in the thread (0 for first tweet)
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
     UNIQUE(user_id, source_tweet_id)
@@ -59,6 +63,9 @@ CREATE TABLE rate_limits (
 CREATE INDEX idx_tweets_user_id ON tweets(user_id);
 CREATE INDEX idx_tweets_status ON tweets(status);
 CREATE INDEX idx_rate_limits_reset ON rate_limits(reset);
+
+-- Create index for thread lookups
+CREATE INDEX IF NOT EXISTS idx_tweets_thread_id ON tweets(thread_id);
 
 -- Create updated_at trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()
