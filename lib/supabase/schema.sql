@@ -29,6 +29,7 @@ CREATE TABLE tweets (
     author_profile_image TEXT,
     status TEXT NOT NULL DEFAULT 'pending',
     error_message TEXT,
+    posted_tweet_id TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
     UNIQUE(user_id, source_tweet_id)
