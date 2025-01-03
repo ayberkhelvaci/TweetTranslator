@@ -1,5 +1,5 @@
 export interface TweetMedia {
-  type: 'photo' | 'video' | 'animated_gif';
+  type: 'photo' | 'video' | 'animated_gif' | string;
   url: string;
   preview_url?: string;
   alt_text?: string;

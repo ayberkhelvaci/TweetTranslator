@@ -115,11 +115,11 @@ export async function POST(req: Request) {
             const tweetIds = validTweets.map(tweet => tweet.id);
             const { data: existingTweets } = await supabaseAdmin
               .from('tweets')
-              .select('tweet_id')
+              .select('source_tweet_id')
               .eq('user_id', config.user_id)
-              .in('tweet_id', tweetIds);
+              .in('source_tweet_id', tweetIds);
 
-            const existingTweetIds = new Set(existingTweets?.map(t => t.tweet_id) || []);
+            const existingTweetIds = new Set(existingTweets?.map(t => t.source_tweet_id) || []);
             const newTweets = validTweets.filter(tweet => !existingTweetIds.has(tweet.id));
 
             console.log(`[Auto-Fetch Job ${jobId}] Found ${newTweets.length} new tweets after filtering duplicates`);
@@ -129,9 +129,14 @@ export async function POST(req: Request) {
               continue;
             }
 
-            // Insert new tweets
-            const { error: insertError } = await supabaseAdmin.from('tweets').insert(
-              newTweets.map((tweet: TweetV2) => ({
+            // Create media map from includes
+            const mediaMap = tweets.includes?.media ? createMediaMap(tweets.includes.media) : new Map();
+
+            // Transform tweets with media and thread information
+            const transformedTweets = newTweets.map((tweet: TweetV2) => {
+              const processedTweet = processTweet(tweet, mediaMap);
+              
+              return {
                 user_id: config.user_id,
                 source_tweet_id: tweet.id,
                 original_text: tweet.text,
@@ -140,13 +145,35 @@ export async function POST(req: Request) {
                 author_profile_image: '',
                 status: 'pending_auto',
                 created_at: tweet.created_at,
-                updated_at: new Date().toISOString()
-              }))
-            );
+                updated_at: new Date().toISOString(),
+                ...processedTweet
+              };
+            });
+
+            // Insert tweets
+            const { error: insertError } = await supabaseAdmin.from('tweets').insert(transformedTweets);
 
             if (insertError) {
               console.error(`[Auto-Fetch Job ${jobId}] Error inserting tweets:`, insertError);
               continue;
+            }
+
+            // Update thread positions
+            for (const tweet of transformedTweets) {
+              if (tweet.thread_id) {
+                const { data: threadTweets } = await supabaseAdmin
+                  .from('tweets')
+                  .select('source_tweet_id')
+                  .eq('thread_id', tweet.thread_id)
+                  .order('created_at', { ascending: true });
+
+                if (threadTweets) {
+                  await supabaseAdmin
+                    .from('tweets')
+                    .update({ thread_position: threadTweets.findIndex(t => t.source_tweet_id === tweet.source_tweet_id) })
+                    .eq('source_tweet_id', tweet.source_tweet_id);
+                }
+              }
             }
 
             // Update registration_timestamp to the latest tweet's timestamp
