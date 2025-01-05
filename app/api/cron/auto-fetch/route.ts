@@ -75,24 +75,41 @@ export async function POST(req: Request) {
           appSecret: config.twitter_keys.api_secret,
           accessToken: config.twitter_keys.access_token,
           accessSecret: config.twitter_keys.access_token_secret,
-        });
+        }).v2;
 
         console.log(`[Auto-Fetch Job ${jobId}] Fetching tweets for ${config.source_account} since: ${config.registration_timestamp}`);
         try {
           // Get user ID first
           const username = config.source_account.replace('@', '');
-          const user = await client.v2.userByUsername(username);
+          const user = await client.userByUsername(username);
           
           if (!user.data) {
             throw new Error(`User ${config.source_account} not found`);
           }
 
           // Get tweets since registration
-          const tweets = await client.v2.userTimeline(user.data.id, {
-            'tweet.fields': ['created_at', 'attachments', 'conversation_id', 'in_reply_to_user_id', 'referenced_tweets'],
+          const tweets = await client.userTimeline(user.data.id, {
+            'tweet.fields': [
+              'created_at',
+              'attachments',
+              'conversation_id',
+              'in_reply_to_user_id',
+              'referenced_tweets',
+              'text',
+              'entities',
+              'edit_history_tweet_ids',
+              'context_annotations',
+              'note_tweet'
+            ],
             'user.fields': ['profile_image_url', 'name', 'username'],
             'media.fields': ['url', 'preview_image_url', 'type', 'alt_text'],
-            expansions: ['attachments.media_keys', 'author_id', 'referenced_tweets.id'],
+            expansions: [
+              'attachments.media_keys',
+              'author_id',
+              'referenced_tweets.id',
+              'in_reply_to_user_id',
+              'edit_history_tweet_ids'
+            ],
             max_results: 10,
             exclude: ['retweets', 'replies'],
             ...(config.last_tweet_id ? { since_id: config.last_tweet_id } : {})
@@ -115,11 +132,11 @@ export async function POST(req: Request) {
             const tweetIds = validTweets.map(tweet => tweet.id);
             const { data: existingTweets } = await supabaseAdmin
               .from('tweets')
-              .select('source_tweet_id')
+              .select('tweet_id')
               .eq('user_id', config.user_id)
-              .in('source_tweet_id', tweetIds);
+              .in('tweet_id', tweetIds);
 
-            const existingTweetIds = new Set(existingTweets?.map(t => t.source_tweet_id) || []);
+            const existingTweetIds = new Set(existingTweets?.map(t => t.tweet_id) || []);
             const newTweets = validTweets.filter(tweet => !existingTweetIds.has(tweet.id));
 
             console.log(`[Auto-Fetch Job ${jobId}] Found ${newTweets.length} new tweets after filtering duplicates`);
@@ -139,41 +156,26 @@ export async function POST(req: Request) {
               return {
                 user_id: config.user_id,
                 source_tweet_id: tweet.id,
-                original_text: tweet.text,
-                translated_text: null,
+                original_text: tweet.note_tweet?.text || tweet.text,  // Use note_tweet text if available
                 author_username: username,
                 author_profile_image: '',
-                status: 'pending_auto',
-                created_at: tweet.created_at,
+                status: 'pending',
+                translated_text: null,
+                created_at: tweet.created_at || new Date().toISOString(),
                 updated_at: new Date().toISOString(),
+                note_tweet: tweet.note_tweet || null,  // Store the full note_tweet object
                 ...processedTweet
               };
             });
 
-            // Insert tweets
-            const { error: insertError } = await supabaseAdmin.from('tweets').insert(transformedTweets);
+            // Insert new tweets
+            const { error: insertError } = await supabaseAdmin.from('tweets').insert(
+              transformedTweets
+            );
 
             if (insertError) {
               console.error(`[Auto-Fetch Job ${jobId}] Error inserting tweets:`, insertError);
               continue;
-            }
-
-            // Update thread positions
-            for (const tweet of transformedTweets) {
-              if (tweet.thread_id) {
-                const { data: threadTweets } = await supabaseAdmin
-                  .from('tweets')
-                  .select('source_tweet_id')
-                  .eq('thread_id', tweet.thread_id)
-                  .order('created_at', { ascending: true });
-
-                if (threadTweets) {
-                  await supabaseAdmin
-                    .from('tweets')
-                    .update({ thread_position: threadTweets.findIndex(t => t.source_tweet_id === tweet.source_tweet_id) })
-                    .eq('source_tweet_id', tweet.source_tweet_id);
-                }
-              }
             }
 
             // Update registration_timestamp to the latest tweet's timestamp

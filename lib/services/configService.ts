@@ -1,18 +1,13 @@
+import { TwitterApi, TweetV2 } from 'twitter-api-v2';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { TwitterApi } from 'twitter-api-v2';
-import crypto from 'crypto';
+import { generateUUID } from '@/lib/utils';
+import { processTweet, createMediaMap } from '@/lib/services/tweetProcessor';
 
-// Function to generate a UUID from a string
-function generateUUID(str: string): string {
-  const hash = crypto.createHash('sha256').update(str).digest();
-  const uuid = [
-    hash.slice(0, 4).toString('hex'),
-    hash.slice(4, 6).toString('hex'),
-    hash.slice(6, 8).toString('hex'),
-    hash.slice(8, 10).toString('hex'),
-    hash.slice(10, 16).toString('hex'),
-  ].join('-');
-  return uuid;
+interface Tweet {
+  id: string;
+  text: string;
+  created_at?: string;
+  edit_history_tweet_ids?: string[];
 }
 
 export interface ConfigData {
@@ -52,12 +47,6 @@ interface TwitterResponse {
   };
 }
 
-interface TwitterTweet {
-  id: string;
-  text: string;
-  created_at?: string;
-}
-
 async function checkAndUpdateRateLimit(userId: string): Promise<RateLimitInfo | null> {
   try {
     const { data: rateLimit } = await supabaseAdmin
@@ -68,12 +57,8 @@ async function checkAndUpdateRateLimit(userId: string): Promise<RateLimitInfo | 
 
     console.log('Current rate limit info:', rateLimit);
 
-    // If no rate limit exists, allow the request
-    if (!rateLimit) {
-      return null;
-    }
+    if (!rateLimit) return null;
 
-    // If we're past the reset time, clear the limit and allow the request
     if (rateLimit.reset <= Date.now()) {
       console.log('Rate limit reset time passed, clearing limit');
       await supabaseAdmin
@@ -83,13 +68,8 @@ async function checkAndUpdateRateLimit(userId: string): Promise<RateLimitInfo | 
       return null;
     }
 
-    // If we still have remaining requests, allow them
-    if (rateLimit.remaining > 0) {
-      return rateLimit;
-    }
+    if (rateLimit.remaining > 0) return rateLimit;
 
-    // Only if we have no remaining requests and haven't reached reset time
-    // should we block with a rate limit error
     if (rateLimit.remaining <= 0 && rateLimit.reset > Date.now()) {
       const waitMinutes = Math.ceil((rateLimit.reset - Date.now()) / (1000 * 60));
       console.log('Rate limit details:', {
@@ -112,9 +92,9 @@ async function checkAndUpdateRateLimit(userId: string): Promise<RateLimitInfo | 
 }
 
 async function updateRateLimit(userId: string, rateLimitData: any, endpoint: string) {
-  const resetTime = Number(rateLimitData.reset) * 1000; // Convert to milliseconds
+  const resetTime = Number(rateLimitData.reset) * 1000;
   const remaining = Number(rateLimitData.remaining);
-  const limit = Number(rateLimitData.limit || 180); // Default to 180 for Twitter API
+  const limit = Number(rateLimitData.limit || 180);
 
   console.log('Updating rate limit:', {
     endpoint,
@@ -124,7 +104,6 @@ async function updateRateLimit(userId: string, rateLimitData: any, endpoint: str
     rateLimitData
   });
 
-  // Always update rate limit info to track remaining requests
   await supabaseAdmin
     .from('rate_limits')
     .upsert({
@@ -139,7 +118,6 @@ async function updateRateLimit(userId: string, rateLimitData: any, endpoint: str
       ignoreDuplicates: false
     });
 
-  // Only throw an error if we're actually rate limited
   if (remaining <= 0 && resetTime > Date.now()) {
     return {
       reset: resetTime,
@@ -160,18 +138,15 @@ export async function saveConfiguration(userId: string, config: ConfigData) {
     const userUUID = generateUUID(userId);
     const now = new Date().toISOString();
     
-    // Get existing configuration
     const { data: existingConfig } = await supabaseAdmin
       .from('config')
       .select('*')
       .eq('user_id', userUUID)
       .single();
 
-    // Clean up the source account: remove any existing @ and add just one
-    const cleanUsername = config.sourceAccount.replace(/^@+/, ''); // Remove all @ from start
-    const sourceAccount = `@${cleanUsername}`; // Add single @
+    const cleanUsername = config.sourceAccount.replace(/^@+/, '');
+    const sourceAccount = `@${cleanUsername}`;
 
-    // Prepare configuration data
     const configData = {
       user_id: userUUID,
       source_account: sourceAccount,
@@ -182,7 +157,6 @@ export async function saveConfiguration(userId: string, config: ConfigData) {
 
     console.log('Saving configuration:', configData);
 
-    // If no existing config, insert new. If exists, update.
     const { error: upsertError } = existingConfig
       ? await supabaseAdmin
           .from('config')
@@ -207,15 +181,13 @@ export async function saveConfiguration(userId: string, config: ConfigData) {
   }
 }
 
-export async function fetchTweetsManually(userId: string) {
+export async function fetchTweetsManually(userId: string, pagination_token?: string) {
   try {
     const userUUID = generateUUID(userId);
     
-    // Check rate limits first
     const currentLimit = await checkAndUpdateRateLimit(userUUID);
     console.log('Current rate limit check result:', currentLimit);
 
-    // Get user's configuration
     const { data: config, error: configError } = await supabaseAdmin
       .from('config')
       .select('source_account')
@@ -226,11 +198,9 @@ export async function fetchTweetsManually(userId: string) {
       throw new Error('Configuration not found. Please save configuration first.');
     }
 
-    // Clean up username for API call
     const username = config.source_account.replace(/^@+/, '');
     
-    // Fetch tweets
-    const result = await fetchTweetsInBackground(userUUID, username);
+    const result = await fetchTweetsInBackground(userUUID, username, pagination_token);
     return result;
   } catch (error) {
     console.error('Error in fetchTweetsManually:', error);
@@ -238,9 +208,8 @@ export async function fetchTweetsManually(userId: string) {
   }
 }
 
-async function fetchTweetsInBackground(userId: string, username: string) {
+async function fetchTweetsInBackground(userId: string, username: string, pagination_token?: string) {
   try {
-    // Get Twitter credentials
     const { data: twitterKeys, error: twitterError } = await supabaseAdmin
       .from('twitter_keys')
       .select('*')
@@ -252,7 +221,6 @@ async function fetchTweetsInBackground(userId: string, username: string) {
       throw new Error('Twitter credentials not found');
     }
 
-    // Initialize Twitter client
     const twitterClient = new TwitterApi({
       appKey: twitterKeys.api_key,
       appSecret: twitterKeys.api_secret,
@@ -263,14 +231,12 @@ async function fetchTweetsInBackground(userId: string, username: string) {
     console.log('Fetching tweets for:', username);
 
     try {
-      // Get user's configuration with twitter_user_id and existing tweets
       const { data: config } = await supabaseAdmin
         .from('config')
         .select('twitter_user_id, last_tweet_id')
         .eq('user_id', userId)
         .single();
 
-      // Check if we have any existing tweets
       const { data: existingTweets } = await supabaseAdmin
         .from('tweets')
         .select('source_tweet_id')
@@ -280,7 +246,6 @@ async function fetchTweetsInBackground(userId: string, username: string) {
 
       let twitterUserId = config?.twitter_user_id;
 
-      // If we don't have the Twitter user ID cached, get it
       if (!twitterUserId) {
         try {
           const user = await twitterClient.v2.userByUsername(username) as TwitterResponse;
@@ -289,13 +254,11 @@ async function fetchTweetsInBackground(userId: string, username: string) {
           }
           twitterUserId = user.data.id;
 
-          // Cache the Twitter user ID
           await supabaseAdmin
             .from('config')
             .update({ twitter_user_id: twitterUserId })
             .eq('user_id', userId);
 
-          // Update rate limit info
           if (user.rateLimit) {
             await updateRateLimit(userId, user.rateLimit, 'userByUsername');
           }
@@ -310,15 +273,34 @@ async function fetchTweetsInBackground(userId: string, username: string) {
         }
       }
 
-      // Fetch tweets with minimal parameters to reduce rate limit impact
       const tweetResponse = await twitterClient.v2.userTimeline(twitterUserId, {
-        max_results: existingTweets?.length ? 5 : 10, // Fetch fewer tweets if we already have some
-        ...(config?.last_tweet_id ? { since_id: config.last_tweet_id } : {}),
-        'tweet.fields': ['created_at'],
+        max_results: 20,
+        ...(pagination_token ? { pagination_token } : {}),
+        ...(config?.last_tweet_id && !pagination_token ? { since_id: config.last_tweet_id } : {}),
+        'tweet.fields': [
+          'created_at',
+          'attachments',
+          'conversation_id',
+          'in_reply_to_user_id',
+          'referenced_tweets',
+          'author_id',
+          'text',
+          'entities',
+          'edit_history_tweet_ids',
+          'note_tweet'
+        ],
+        'user.fields': ['profile_image_url', 'name', 'username'],
+        'media.fields': ['url', 'preview_image_url', 'type', 'alt_text'],
+        expansions: [
+          'attachments.media_keys',
+          'author_id',
+          'referenced_tweets.id',
+          'in_reply_to_user_id',
+          'edit_history_tweet_ids'
+        ],
         exclude: ['retweets', 'replies']
-      }) as TwitterResponse;
+      });
 
-      // Update rate limit info
       if (tweetResponse.rateLimit) {
         await updateRateLimit(userId, tweetResponse.rateLimit, 'userTimeline');
       }
@@ -333,8 +315,25 @@ async function fetchTweetsInBackground(userId: string, username: string) {
         };
       }
 
-      // Check for existing tweets
-      const tweetIds = tweets.map((tweet: TwitterTweet) => tweet.id);
+      // Filter out replies that aren't part of a thread by the same author
+      const filteredTweets = tweets.filter((tweet: TweetV2) => {
+        // If no referenced tweets, it's an original tweet
+        if (!tweet.referenced_tweets) return true;
+        
+        // Check if it's part of a thread by the same author
+        const isThread = tweet.referenced_tweets.some((ref) => 
+          ref.type === 'replied_to' && 
+          tweetResponse.data.includes?.tweets?.find((t) => 
+            t.id === ref.id && 
+            t.author_id === tweet.author_id
+          )
+        );
+
+        // Keep if it's a quote tweet or part of a thread by same author
+        return isThread || tweet.referenced_tweets.some((ref) => ref.type === 'quoted');
+      });
+
+      const tweetIds = filteredTweets.map((tweet) => tweet.id);
       const { data: existingTweetIds } = await supabaseAdmin
         .from('tweets')
         .select('source_tweet_id')
@@ -342,7 +341,7 @@ async function fetchTweetsInBackground(userId: string, username: string) {
         .in('source_tweet_id', tweetIds);
 
       const existingIds = new Set(existingTweetIds?.map(t => t.source_tweet_id) || []);
-      const newTweets = tweets.filter((tweet: TwitterTweet) => !existingIds.has(tweet.id));
+      const newTweets = filteredTweets.filter((tweet: Tweet) => !existingIds.has(tweet.id));
 
       console.log(`Found ${newTweets.length} new tweets after filtering duplicates`);
 
@@ -353,18 +352,28 @@ async function fetchTweetsInBackground(userId: string, username: string) {
         };
       }
 
-      // Transform tweets to match our schema
-      const transformedTweets = newTweets.map((tweet: TwitterTweet) => ({
-        user_id: userId,
-        source_tweet_id: tweet.id,
-        original_text: tweet.text,
-        translated_text: null,
-        author_username: username,
-        author_profile_image: '',
-        status: 'pending',
-        created_at: tweet.created_at || new Date().toISOString(),
-        updated_at: new Date().toISOString()
-      }));
+      const mediaMap = tweetResponse.data.includes?.media ? createMediaMap(tweetResponse.data.includes.media) : new Map();
+
+      const transformedTweets = newTweets.map((tweet: Tweet) => {
+        const processedTweet = processTweet(tweet as TweetV2, mediaMap);
+        
+        const baseTweet = {
+          user_id: userId,
+          source_tweet_id: tweet.id,
+          original_text: tweet.text,
+          author_username: username,
+          author_profile_image: '',
+          status: 'pending',
+          translated_text: null,
+          created_at: tweet.created_at || new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        return {
+          ...baseTweet,
+          ...processedTweet
+        };
+      });
 
       if (transformedTweets.length > 0) {
         const { error: insertError } = await supabaseAdmin
@@ -386,7 +395,8 @@ async function fetchTweetsInBackground(userId: string, username: string) {
 
         return {
           success: true,
-          message: `Successfully fetched ${transformedTweets.length} new tweets`
+          message: `Successfully fetched ${transformedTweets.length} new tweets`,
+          pagination_token: tweetResponse.data.meta?.next_token
         };
       }
 
