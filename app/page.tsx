@@ -52,8 +52,7 @@ export default function Home() {
       <div className="mt-8">
         <TweetList
           tweets={tweets}
-          onTranslate={fetchTweets}
-          onPost={fetchTweets}
+          onTweetUpdate={fetchTweets}
         />
       </div>
     </main>
