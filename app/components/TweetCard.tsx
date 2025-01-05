@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import { format } from 'date-fns';
 import { TranslationModal } from './TranslationModal';
+import { PreviewModal } from './PreviewModal';
 import { Tweet } from '../../types/tweet';
 
 interface TweetCardProps {
@@ -23,6 +24,7 @@ export function TweetCard({
 }: TweetCardProps) {
   const [tweet, setTweet] = useState<Tweet>(initialTweet);
   const [isTranslationModalOpen, setIsTranslationModalOpen] = useState(false);
+  const [isPreviewModalOpen, setIsPreviewModalOpen] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const [translationError, setTranslationError] = useState<string | null>(null);
@@ -108,50 +110,27 @@ export function TweetCard({
   };
 
   const handlePostManually = async () => {
-    if (isPosting) return; // Prevent double posting
-    
-    try {
-      setIsPosting(true);
-      setTranslationError(null);
+    setIsPreviewModalOpen(true);
+  };
 
+  const handlePostConfirm = async () => {
+    setIsPosting(true);
+    try {
       const response = await fetch('/api/tweets/post', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ tweetId: tweet.source_tweet_id }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tweet_id: tweet.id })
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        if (data.error?.includes('duplicate content')) {
-          // If it's a duplicate, mark as posted immediately
-          setTweet(prev => ({ ...prev, status: 'posted' }));
-          setTranslationError('Tweet was already posted');
-          // Refresh to ensure database is updated
-          onTranslate();
-          return;
-        }
-        throw new Error(data.error || 'Failed to post tweet');
+        throw new Error('Failed to post tweet');
       }
 
-      // If post was successful, update local state and ensure database is updated
-      if (data.status === 'posted') {
-        setTweet(prev => ({ 
-          ...prev, 
-          status: 'posted',
-          posted_tweet_id: data.tweetId 
-        }));
-        setTranslationError(null);
-        // Refresh to ensure database is updated
-        onTranslate();
+      if (onPost) {
+        onPost();
       }
     } catch (error) {
       console.error('Error posting tweet:', error);
-      setTranslationError(error instanceof Error ? error.message : 'Failed to post tweet');
-      // Refresh to get the current status
-      onTranslate();
     } finally {
       setIsPosting(false);
     }
@@ -299,6 +278,14 @@ export function TweetCard({
         tweet={tweet}
         onTranslate={onTranslate}
         error={translationError}
+      />
+
+      {/* Preview Modal */}
+      <PreviewModal
+        isOpen={isPreviewModalOpen}
+        onClose={() => setIsPreviewModalOpen(false)}
+        tweet={tweet}
+        onPost={handlePostConfirm}
       />
     </div>
   );
