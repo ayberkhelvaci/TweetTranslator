@@ -17,6 +17,12 @@ export interface Tweet {
   retry_after?: string;
   image_urls?: string[];
   posted_tweet_id?: string;
+  
+  // Thread-related fields
+  thread_id?: string;
+  thread_position?: number;
+  is_thread_start?: boolean;
+  is_thread_end?: boolean;
 }
 
 export interface TweetMedia {
