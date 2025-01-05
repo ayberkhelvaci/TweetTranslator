@@ -10,12 +10,14 @@ interface TweetCardProps {
   tweet: Tweet;
   onTranslate: () => void;
   onPost: () => void;
+  isPartOfThread?: boolean;
 }
 
 export function TweetCard({ 
   tweet: initialTweet, 
   onTranslate,
-  onPost
+  onPost,
+  isPartOfThread = false
 }: TweetCardProps) {
   const [tweet, setTweet] = useState<Tweet>(initialTweet);
   const [isTranslationModalOpen, setIsTranslationModalOpen] = useState(false);
