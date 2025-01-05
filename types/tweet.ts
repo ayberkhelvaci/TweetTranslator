@@ -17,4 +17,10 @@ export interface Tweet {
   retry_after?: string;
   image_urls?: string[];
   posted_tweet_id?: string;
+}
+
+export interface TweetMedia {
+  type: 'photo' | 'video' | 'animated_gif';
+  url: string;
+  preview_image_url?: string;
 } 
