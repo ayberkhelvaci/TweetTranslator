@@ -8,76 +8,77 @@ type TweetStatus = 'all' | 'pending' | 'translated' | 'posted' | 'queued';
 
 interface TweetListProps {
   tweets: Tweet[];
-  onTranslate: (tweet: Tweet) => void;
-  onPost: (tweet: Tweet) => void;
+  onTweetUpdate: (tweet: Tweet) => void;
 }
 
-export function TweetList({ tweets, onTranslate, onPost }: TweetListProps) {
-  const [activeTab, setActiveTab] = useState<TweetStatus>('all');
+export function TweetList({ tweets, onTweetUpdate }: TweetListProps) {
+  // First, sort all tweets by creation date (newest first)
+  const sortedTweets = [...tweets].sort((a, b) => 
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
 
-  const filteredTweets = tweets.filter(tweet => {
-    if (activeTab === 'all') return true;
-    return tweet.status === activeTab;
+  // Group tweets by conversation_id
+  const groupedTweets = sortedTweets.reduce((acc, tweet) => {
+    if (!tweet.conversation_id) {
+      // If no conversation_id, treat as standalone tweet
+      acc[tweet.id] = [tweet];
+      return acc;
+    }
+
+    const key = tweet.conversation_id;
+    if (!acc[key]) {
+      acc[key] = [];
+    }
+    acc[key].push(tweet);
+    return acc;
+  }, {} as Record<string, Tweet[]>);
+
+  // Sort tweets within each thread by creation date (newest first)
+  Object.values(groupedTweets).forEach(threadTweets => {
+    threadTweets.sort((a, b) => 
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
   });
 
-  const tabStyle = (tab: TweetStatus) => `
-    px-4 py-2 text-sm font-medium rounded-md
-    ${activeTab === tab 
-      ? 'bg-blue-100 text-blue-700' 
-      : 'text-gray-500 hover:text-gray-700'}
-  `;
+  // Flatten the grouped tweets back into a single array
+  // Keep the overall newest-first order, but keep thread tweets together
+  const finalTweets = Object.entries(groupedTweets).flatMap(([conversationId, threadTweets]) => {
+    // If it's a single tweet (not part of a thread), return as is
+    if (threadTweets.length === 1 && !threadTweets[0].thread_id) {
+      return threadTweets;
+    }
+    // Return thread tweets in reverse chronological order
+    return threadTweets;
+  });
+
+  // Handle tweet updates
+  const handleTweetUpdate = async (tweet: Tweet) => {
+    try {
+      // Fetch the latest tweet data from the database
+      const response = await fetch(`/api/tweets/${tweet.source_tweet_id}`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch updated tweet');
+      }
+      
+      const updatedTweet = await response.json();
+      if (onTweetUpdate) {
+        onTweetUpdate(updatedTweet);
+      }
+    } catch (error) {
+      console.error('Error updating tweet:', error);
+    }
+  };
 
   return (
-    <div className="space-y-4">
-      <div className="flex space-x-2 overflow-x-auto pb-2">
-        <button
-          onClick={() => setActiveTab('all')}
-          className={tabStyle('all')}
-        >
-          All Tweets
-        </button>
-        <button
-          onClick={() => setActiveTab('pending')}
-          className={tabStyle('pending')}
-        >
-          Pending
-        </button>
-        <button
-          onClick={() => setActiveTab('translated')}
-          className={tabStyle('translated')}
-        >
-          Translated
-        </button>
-        <button
-          onClick={() => setActiveTab('posted')}
-          className={tabStyle('posted')}
-        >
-          Posted
-        </button>
-        <button
-          onClick={() => setActiveTab('queued')}
-          className={tabStyle('queued')}
-        >
-          Queued
-        </button>
-      </div>
-
-      <div className="space-y-4">
-        {filteredTweets.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            No tweets found for this filter
-          </div>
-        ) : (
-          filteredTweets.map((tweet) => (
-            <TweetCard
-              key={tweet.source_tweet_id}
-              tweet={tweet}
-              onTranslate={() => onTranslate(tweet)}
-              onPost={() => onPost(tweet)}
-            />
-          ))
-        )}
-      </div>
+    <div className="space-y-6">
+      {finalTweets.map((tweet) => (
+        <TweetCard
+          key={tweet.id}
+          tweet={tweet}
+          onTranslate={() => handleTweetUpdate(tweet)}
+          onPost={() => handleTweetUpdate(tweet)}
+        />
+      ))}
     </div>
   );
 } 

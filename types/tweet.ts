@@ -23,10 +23,14 @@ export interface Tweet {
   thread_position?: number;
   is_thread_start?: boolean;
   is_thread_end?: boolean;
+  
+  // Media attachments
+  media_attachments?: Array<TweetMedia | string>;
 }
 
 export interface TweetMedia {
   type: 'photo' | 'video' | 'animated_gif';
   url: string;
   preview_image_url?: string;
+  alt_text?: string;
 } 

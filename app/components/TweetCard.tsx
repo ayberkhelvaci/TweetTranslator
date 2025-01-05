@@ -11,19 +11,22 @@ interface TweetCardProps {
   onTranslate: () => void;
   onPost: () => void;
   isPartOfThread?: boolean;
+  isLastInThread?: boolean;
 }
 
 export function TweetCard({ 
-  tweet: initialTweet, 
+  tweet: initialTweet,
   onTranslate,
   onPost,
-  isPartOfThread = false
+  isPartOfThread = false,
+  isLastInThread = false
 }: TweetCardProps) {
   const [tweet, setTweet] = useState<Tweet>(initialTweet);
   const [isTranslationModalOpen, setIsTranslationModalOpen] = useState(false);
   const [isTranslating, setIsTranslating] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   const [translationError, setTranslationError] = useState<string | null>(null);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   // Update local tweet when prop changes
   useEffect(() => {
@@ -161,85 +164,132 @@ export function TweetCard({
   };
 
   return (
-    <>
-      <div className="bg-white rounded-2xl p-6 space-y-4">
-        {/* Date and Status */}
-        <div className="flex justify-between items-center">
-          <div className="text-gray-600">
-            {format(new Date(tweet.created_at), 'MMMM d, yyyy')}
-          </div>
-          <div className={`px-4 py-1.5 rounded-full text-sm font-medium ${getStatusStyle(tweet.status)}`}>
-            {getStatusBadge(tweet.status)}
-          </div>
+    <div className="relative">
+      {/* Thread Indicator */}
+      {tweet.thread_id && (
+        <div className="flex items-center space-x-2 mb-2">
+          <svg className="w-4 h-4 text-blue-600" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M19 5v14M5 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+          </svg>
+          <span className="text-blue-600 text-sm font-medium">Thread Tweet</span>
         </div>
+      )}
 
-        {/* Author Info */}
-        {tweet.author && (
-          <div className="flex items-center space-x-3">
-            <Image
-              src={tweet.author.profile_image_url}
-              alt={tweet.author.name}
-              width={48}
-              height={48}
-              className="rounded-full"
-            />
-            <div>
-              <div className="font-semibold text-lg">{tweet.author.name}</div>
-              <div className="text-gray-600">@{tweet.author.username}</div>
-            </div>
+      {/* Thread Line and Card */}
+      <div className="flex">
+        {/* Thread Line */}
+        {tweet.thread_id && (
+          <div className="relative flex-shrink-0 w-8">
+            <div className="absolute left-3 top-0 bottom-0 w-[2px] bg-blue-100" />
+            <div className="absolute left-[9px] top-8 w-3 h-3 rounded-full border-2 border-blue-100 bg-white" />
           </div>
         )}
 
-        {/* Tweet Content */}
-        <div className="text-gray-800 text-lg">
-          {tweet.original_text}
-        </div>
-
-        {/* Images */}
-        {tweet.image_urls && tweet.image_urls.length > 0 && (
-          <div className="grid grid-cols-2 gap-4">
-            {tweet.image_urls.map((url, index) => (
-              <div key={index} className="relative aspect-square">
-                <Image
-                  src={url}
-                  alt="Tweet image"
-                  fill
-                  className="object-cover rounded-xl"
-                  sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                />
+        {/* Main Card */}
+        <div className="flex-grow">
+          <div className="bg-white rounded-2xl p-6 space-y-4">
+            {/* Date and Status */}
+            <div className="flex justify-between items-center">
+              <div className="text-gray-600">
+                {format(new Date(tweet.created_at), 'MMMM d, yyyy')}
               </div>
-            ))}
-          </div>
-        )}
+              <div className={`px-4 py-1.5 rounded-full text-sm font-medium ${getStatusStyle(tweet.status)}`}>
+                {getStatusBadge(tweet.status)}
+              </div>
+            </div>
 
-        {/* Action Buttons */}
-        <div className="flex space-x-4">
-          <button
-            onClick={handleTranslateOrCheck}
-            disabled={isTranslating}
-            className="flex items-center space-x-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-full text-sm font-medium transition-colors disabled:opacity-50"
-          >
-            <span>{tweet.status === 'pending' ? 'Translate Manually' : 'Check Translation'}</span>
-            <span>→</span>
-          </button>
-          {tweet.status === 'translated' && (
-            <button
-              onClick={handlePostManually}
-              disabled={isPosting}
-              className="flex items-center space-x-2 px-4 py-2 bg-green-50 text-green-600 rounded-full text-sm font-medium transition-colors disabled:opacity-50"
-            >
-              <span>Post Tweet</span>
-              <span>→</span>
-            </button>
-          )}
+            {/* Author Info */}
+            {tweet.author && (
+              <div className="flex items-center space-x-3">
+                <div className="relative">
+                  <Image
+                    src={tweet.author.profile_image_url}
+                    alt={tweet.author.name}
+                    width={48}
+                    height={48}
+                    className="rounded-full ring-2 ring-white shadow-sm"
+                  />
+                </div>
+                <div>
+                  <div className="font-semibold text-lg">{tweet.author.name}</div>
+                  <div className="text-gray-600">@{tweet.author.username}</div>
+                </div>
+              </div>
+            )}
+
+            {/* Tweet Content */}
+            <div className="text-gray-800 text-lg">
+              {tweet.original_text}
+            </div>
+
+            {/* Media Grid */}
+            {tweet.media_attachments && tweet.media_attachments.length > 0 && (
+              <div className="max-w-[400px]">
+                <div className={`grid gap-2 ${
+                  tweet.media_attachments.length === 1 ? 'grid-cols-1' :
+                  tweet.media_attachments.length === 2 ? 'grid-cols-2' :
+                  tweet.media_attachments.length === 3 ? 'grid-cols-2' :
+                  'grid-cols-2'
+                }`}>
+                  {tweet.media_attachments.map((media, index) => {
+                    const mediaUrl = typeof media === 'string' ? media : media.url;
+                    const altText = typeof media === 'string' ? "Tweet image" : (media.alt_text || "Tweet image");
+                    
+                    return (
+                      <div 
+                        key={index} 
+                        className={`relative cursor-pointer transition-transform hover:scale-[1.02] border border-gray-200 rounded-xl overflow-hidden ${
+                          tweet.media_attachments?.length === 3 && index === 0 ? 'col-span-2' : ''
+                        }`}
+                        style={{ 
+                          aspectRatio: tweet.media_attachments?.length === 1 ? '16/9' : '1/1'
+                        }}
+                        onClick={() => setSelectedImage(mediaUrl)}
+                      >
+                        <Image
+                          src={mediaUrl}
+                          alt={altText}
+                          fill
+                          className="object-cover"
+                          sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex space-x-4">
+              <button
+                onClick={handleTranslateOrCheck}
+                disabled={isTranslating}
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-full text-sm font-medium transition-colors disabled:opacity-50"
+              >
+                <span>{getTranslateButtonText()}</span>
+                <span>→</span>
+              </button>
+              {tweet.status === 'translated' && (
+                <button
+                  onClick={handlePostManually}
+                  disabled={isPosting}
+                  className="flex items-center space-x-2 px-4 py-2 bg-green-50 text-green-600 rounded-full text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  <span>Post Tweet</span>
+                  <span>→</span>
+                </button>
+              )}
+            </div>
+
+            {/* Error Message */}
+            {translationError && (
+              <div className="mt-4 p-3 bg-red-50 text-red-600 rounded-lg">
+                {translationError}
+              </div>
+            )}
+          </div>
         </div>
-
-        {/* Error Message */}
-        {translationError && (
-          <div className="mt-4 p-3 bg-red-50 text-red-600 rounded-lg">
-            {translationError}
-          </div>
-        )}
       </div>
 
       {/* Translation Modal */}
@@ -250,6 +300,6 @@ export function TweetCard({
         onTranslate={onTranslate}
         error={translationError}
       />
-    </>
+    </div>
   );
 } 

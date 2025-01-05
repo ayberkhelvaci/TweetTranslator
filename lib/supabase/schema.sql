@@ -35,6 +35,14 @@ CREATE TABLE tweets (
     UNIQUE(user_id, source_tweet_id)
 );
 
+-- Update tweets table to add conversation_id
+ALTER TABLE tweets
+ADD COLUMN IF NOT EXISTS conversation_id text,
+ADD COLUMN IF NOT EXISTS thread_id text,
+ADD COLUMN IF NOT EXISTS thread_position integer,
+ADD COLUMN IF NOT EXISTS is_thread_start boolean DEFAULT false,
+ADD COLUMN IF NOT EXISTS media_attachments jsonb[];
+
 -- Create twitter_keys table
 CREATE TABLE twitter_keys (
     user_id UUID PRIMARY KEY REFERENCES config(user_id) ON DELETE CASCADE,
