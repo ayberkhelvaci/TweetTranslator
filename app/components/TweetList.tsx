@@ -12,8 +12,16 @@ interface TweetListProps {
 }
 
 export function TweetList({ tweets, onTweetUpdate }: TweetListProps) {
+  const [selectedStatus, setSelectedStatus] = useState<TweetStatus>('all');
+
+  // Filter tweets based on status
+  const filteredTweets = tweets.filter(tweet => {
+    if (selectedStatus === 'all') return true;
+    return tweet.status === selectedStatus;
+  });
+
   // First, sort all tweets by creation date (newest first)
-  const sortedTweets = [...tweets].sort((a, b) => 
+  const sortedTweets = [...filteredTweets].sort((a, b) => 
     new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   );
 
@@ -45,16 +53,24 @@ export function TweetList({ tweets, onTweetUpdate }: TweetListProps) {
     });
   });
 
-  // Flatten the grouped tweets back into a single array
-  // Keep the overall newest-first order, but keep thread tweets together
-  const finalTweets = Object.entries(groupedTweets).flatMap(([threadId, threadTweets]) => {
-    // If it's a single tweet (not part of a thread), return as is
-    if (threadTweets.length === 1 && !threadTweets[0].thread_id) {
-      return threadTweets;
+  // Get the earliest tweet from each thread for sorting
+  const threadStartDates = Object.entries(groupedTweets).reduce((acc, [threadId, tweets]) => {
+    // For non-thread tweets, use their own date
+    if (tweets.length === 1 && !tweets[0].thread_id) {
+      acc[threadId] = new Date(tweets[0].created_at).getTime();
+    } else {
+      // For threads, use the date of the first tweet in the thread
+      acc[threadId] = Math.max(...tweets.map(t => new Date(t.created_at).getTime()));
     }
-    // Return thread tweets in order
-    return threadTweets;
-  });
+    return acc;
+  }, {} as Record<string, number>);
+
+  // Sort threads by their start dates (newest first)
+  const finalTweets = Object.entries(groupedTweets)
+    .sort(([threadIdA], [threadIdB]) => {
+      return threadStartDates[threadIdB] - threadStartDates[threadIdA];
+    })
+    .flatMap(([_, threadTweets]) => threadTweets);
 
   // Handle tweet updates
   const handleTweetUpdate = async (tweet: Tweet) => {
@@ -75,17 +91,37 @@ export function TweetList({ tweets, onTweetUpdate }: TweetListProps) {
   };
 
   return (
-    <div className="space-y-6">
-      {finalTweets.map((tweet, index) => (
-        <TweetCard
-          key={tweet.id}
-          tweet={tweet}
-          onTranslate={() => handleTweetUpdate(tweet)}
-          onPost={() => handleTweetUpdate(tweet)}
-          isPartOfThread={!!tweet.thread_id}
-          isLastInThread={tweet.is_thread_end || false}
-        />
-      ))}
+    <div>
+      {/* Status Filter Tabs */}
+      <div className="flex space-x-2 mb-6 overflow-x-auto pb-2">
+        {(['all', 'pending', 'translated', 'posted', 'queued'] as const).map((status) => (
+          <button
+            key={status}
+            onClick={() => setSelectedStatus(status)}
+            className={`px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-colors ${
+              selectedStatus === status
+                ? 'bg-blue-100 text-blue-700'
+                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+            }`}
+          >
+            {status.charAt(0).toUpperCase() + status.slice(1)}
+          </button>
+        ))}
+      </div>
+
+      {/* Tweet List */}
+      <div className="space-y-6">
+        {finalTweets.map((tweet, index) => (
+          <TweetCard
+            key={tweet.id}
+            tweet={tweet}
+            onTranslate={() => handleTweetUpdate(tweet)}
+            onPost={() => handleTweetUpdate(tweet)}
+            isPartOfThread={!!tweet.thread_id}
+            isLastInThread={tweet.is_thread_end || false}
+          />
+        ))}
+      </div>
     </div>
   );
 } 
