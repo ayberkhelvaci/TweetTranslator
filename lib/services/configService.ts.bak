@@ -1,5 +1,7 @@
+import { TwitterApi, TweetV2 } from 'twitter-api-v2';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { TwitterApi } from 'twitter-api-v2';
+import { generateUUID } from '@/lib/utils';
+import { processTweet, createMediaMap } from '@/lib/services/tweetProcessor';
 import crypto from 'crypto';
 
 // Function to generate a UUID from a string
@@ -43,68 +45,19 @@ interface RateLimitInfo {
   endpoint: string;
 }
 
-interface TwitterUser {
-  id: string;
-  name: string;
-  username: string;
-  profile_image_url?: string;
-}
-
-interface TwitterMedia {
-  media_key: string;
-  type: string;
-  url?: string;
-  preview_image_url?: string;
-  alt_text?: string;
+interface TwitterResponse {
+  data: any;
+  rateLimit?: {
+    limit: number;
+    remaining: number;
+    reset: number;
+  };
 }
 
 interface TwitterTweet {
   id: string;
   text: string;
   created_at?: string;
-  author_id?: string;
-  attachments?: {
-    media_keys: string[];
-  };
-  conversation_id?: string;
-  referenced_tweets?: Array<{
-    type: 'replied_to' | 'retweeted' | 'quoted';
-    id: string;
-  }>;
-  note_tweet?: {
-    text: string;
-  };
-}
-
-interface TwitterIncludes {
-  media?: TwitterMedia[];
-  tweets?: TwitterTweet[];
-  users?: TwitterUser[];
-}
-
-interface TwitterResponse {
-  data: {
-    data: TwitterTweet[];
-    includes?: TwitterIncludes;
-  };
-  rateLimit?: {
-    limit: number;
-    remaining: number;
-    reset: number;
-  };
-}
-
-interface TwitterUserResponse {
-  data: {
-    id: string;
-    name: string;
-    username: string;
-  };
-  rateLimit?: {
-    limit: number;
-    remaining: number;
-    reset: number;
-  };
 }
 
 async function checkAndUpdateRateLimit(userId: string): Promise<RateLimitInfo | null> {
@@ -332,7 +285,7 @@ async function fetchTweetsInBackground(userId: string, username: string) {
       // If we don't have the Twitter user ID cached, get it
       if (!twitterUserId) {
         try {
-          const user = await twitterClient.v2.userByUsername(username) as TwitterUserResponse;
+          const user = await twitterClient.v2.userByUsername(username) as TwitterResponse;
           if (!user.data) {
             throw new Error(`User @${username} not found`);
           }
@@ -361,37 +314,13 @@ async function fetchTweetsInBackground(userId: string, username: string) {
 
       // Fetch tweets with minimal parameters to reduce rate limit impact
       const tweetResponse = await twitterClient.v2.userTimeline(twitterUserId, {
-        max_results: existingTweets?.length ? 5 : 10,
+        max_results: existingTweets?.length ? 5 : 10, // Fetch fewer tweets if we already have some
         ...(config?.last_tweet_id ? { since_id: config.last_tweet_id } : {}),
-        'tweet.fields': [
-          'created_at',
-          'attachments',
-          'author_id',
-          'conversation_id',
-          'referenced_tweets',
-          'entities',
-          'note_tweet'
-        ],
-        'media.fields': [
-          'type',
-          'url',
-          'preview_image_url',
-          'alt_text',
-          'media_key'
-        ],
-        'user.fields': [
-          'id',
-          'name',
-          'username',
-          'profile_image_url'
-        ],
-        expansions: [
-          'attachments.media_keys',
-          'author_id',
-          'referenced_tweets.id',
-          'referenced_tweets.id.author_id'
-        ],
-        exclude: ['replies', 'retweets']
+        'tweet.fields': ['created_at', 'attachments', 'conversation_id', 'in_reply_to_user_id', 'referenced_tweets'],
+        'user.fields': ['profile_image_url', 'name', 'username'],
+        'media.fields': ['url', 'preview_image_url', 'type', 'alt_text'],
+        expansions: ['attachments.media_keys', 'author_id', 'referenced_tweets.id'],
+        exclude: ['retweets', 'replies']
       }) as TwitterResponse;
 
       // Update rate limit info
@@ -400,7 +329,6 @@ async function fetchTweetsInBackground(userId: string, username: string) {
       }
 
       const tweets = tweetResponse.data.data || [];
-      const includes = tweetResponse.data.includes || {};
       console.log(`Fetched ${tweets.length} tweets`);
 
       if (tweets.length === 0) {
@@ -430,49 +358,24 @@ async function fetchTweetsInBackground(userId: string, username: string) {
         };
       }
 
+      // Create media map from includes
+      const mediaMap = tweetResponse.data.includes?.media ? createMediaMap(tweetResponse.data.includes.media) : new Map();
+
       // Transform tweets to match our schema
       const transformedTweets = newTweets.map((tweet: TwitterTweet) => {
-        // Process media attachments
-        const mediaKeys = tweet.attachments?.media_keys || [];
-        const mediaAttachments = includes.media
-          ?.filter(m => mediaKeys.includes(m.media_key))
-          .map(m => ({
-            type: m.type,
-            url: m.url || m.preview_image_url,
-            preview_image_url: m.preview_image_url,
-            alt_text: m.alt_text
-          })) || [];
-
-        // Get thread information
-        const isThread = tweet.referenced_tweets?.some(ref => ref.type === 'replied_to');
-        const threadId = isThread ? tweet.conversation_id : null;
-        const position = isThread ? tweet.referenced_tweets?.length : null;
-
-        // Get author information
-        const author = includes.users?.find(u => u.id === tweet.author_id);
-
+        const processedTweet = processTweet(tweet, mediaMap);
+        
         return {
           user_id: userId,
           source_tweet_id: tweet.id,
           original_text: tweet.text,
           translated_text: null,
-          author_username: author?.username || username,
-          author_profile_image: author?.profile_image_url || '',
+          author_username: username,
+          author_profile_image: '',
           status: 'pending',
           created_at: tweet.created_at || new Date().toISOString(),
           updated_at: new Date().toISOString(),
-          media_attachments: mediaAttachments,
-          thread_id: threadId,
-          thread_position: position,
-          conversation_id: tweet.conversation_id,
-          tweet_structure: {
-            tweet,
-            includes: {
-              media: includes.media || [],
-              referenced_tweets: includes.tweets || [],
-              users: includes.users || []
-            }
-          }
+          ...processedTweet
         };
       });
 

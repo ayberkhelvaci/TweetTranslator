@@ -9,7 +9,10 @@
     "lint": "next lint",
     "test": "jest",
     "test:watch": "jest --watch",
-    "test:auth": "jest auth.test.ts --verbose --detectOpenHandles"
+    "test:auth": "jest auth.test.ts --verbose --detectOpenHandles",
+    "checkpoint:create": "ts-node scripts/checkpoint.ts create",
+    "checkpoint:revert": "ts-node scripts/checkpoint.ts revert",
+    "checkpoint:list": "ts-node scripts/checkpoint.ts list"
   },
   "dependencies": {
     "@headlessui/react": "^2.0.0",
