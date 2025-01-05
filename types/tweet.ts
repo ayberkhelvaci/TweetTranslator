@@ -23,6 +23,7 @@ export interface Tweet {
   thread_position?: number;
   is_thread_start?: boolean;
   is_thread_end?: boolean;
+  conversation_id?: string;
   
   // Media attachments
   media_attachments?: Array<TweetMedia | string>;
